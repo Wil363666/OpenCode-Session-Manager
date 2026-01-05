@@ -2,6 +2,8 @@
 
 A web-based GUI tool for managing OpenCode sessions and projects. Browse, search, organize, and clean up your OpenCode data with ease.
 
+<img width="1920" alt="Screenshot" src="https://github.com/user-attachments/assets/6bfa19ab-186e-4d66-bbeb-722bbf2b0009" />
+
 ---
 
 ## Features
