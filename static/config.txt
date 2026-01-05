@@ -1,1 +1,4 @@
-~\.local\share\opencode\storage
+{
+  "storage_path": "~\\.local\\share\\opencode\\storage",
+  "theme": "glitch"
+}

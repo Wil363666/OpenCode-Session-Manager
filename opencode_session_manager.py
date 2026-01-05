@@ -142,6 +142,7 @@ import uvicorn
 # =============================================================================
 
 STORAGE_PATH: Optional[Path] = None
+DESKTOP_CACHE_PATH: Optional[Path] = None  # OpenCode Desktop app cache
 MAX_UNDO_HISTORY = 10
 undo_history: list[dict] = []
 
@@ -178,50 +179,127 @@ def get_default_storage_path() -> Optional[Path]:
     return None
 
 
-def load_config() -> Optional[Path]:
-    """Load storage path from config file."""
+def load_config() -> dict:
+    """Load config from config file (supports both legacy text and JSON format)."""
+    config = {"storage_path": None, "theme": "default"}
+    
     if not CONFIG_FILE.exists():
-        return None
+        return config
+    
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            path_str = f.read().strip()
-        if not path_str:
-            return None
-        path_str = os.path.expanduser(path_str)
+            content = f.read().strip()
+        
+        if not content:
+            return config
+        
+        # Try JSON format first
+        if content.startswith("{"):
+            try:
+                data = json.loads(content)
+                if "storage_path" in data:
+                    path_str = os.path.expanduser(data["storage_path"])
+                    path_str = os.path.expandvars(path_str)
+                    path = Path(path_str)
+                    if path.exists() and path.is_dir():
+                        config["storage_path"] = path
+                if "theme" in data:
+                    config["theme"] = data["theme"]
+                return config
+            except json.JSONDecodeError:
+                pass
+        
+        # Legacy text format (just the path)
+        path_str = os.path.expanduser(content)
         path_str = os.path.expandvars(path_str)
         path = Path(path_str)
         if path.exists() and path.is_dir():
-            return path
+            config["storage_path"] = path
+            
     except (IOError, OSError):
         pass
-    return None
+    
+    return config
 
 
-def save_config(path: Path):
-    """Save storage path to config file."""
+def save_config(storage_path: Optional[Path] = None, theme: Optional[str] = None):
+    """Save config to config file in JSON format."""
     try:
-        path_str = str(path)
-        home = str(Path.home())
-        if path_str.startswith(home):
-            path_str = "~" + path_str[len(home):]
+        # Load existing config first
+        existing = load_config()
+        
+        # Update with new values if provided
+        if storage_path is not None:
+            path_str = str(storage_path)
+            home = str(Path.home())
+            if path_str.startswith(home):
+                path_str = "~" + path_str[len(home):]
+            existing["storage_path"] = path_str
+        elif existing["storage_path"] is not None:
+            path_str = str(existing["storage_path"])
+            home = str(Path.home())
+            if path_str.startswith(home):
+                path_str = "~" + path_str[len(home):]
+            existing["storage_path"] = path_str
+        
+        if theme is not None:
+            existing["theme"] = theme
+        
+        # Convert Path to string for JSON serialization
+        save_data = {
+            "storage_path": existing["storage_path"] if isinstance(existing["storage_path"], str) else (str(existing["storage_path"]) if existing["storage_path"] else None),
+            "theme": existing.get("theme", "default")
+        }
+        
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            f.write(path_str)
+            json.dump(save_data, f, indent=2)
         print(f"Config saved to: {CONFIG_FILE}")
     except (IOError, OSError) as e:
         print(f"Warning: Could not save config: {e}")
 
 
+def get_desktop_cache_path() -> Optional[Path]:
+    """Get the OpenCode Desktop app cache path (default.dat location)."""
+    system = platform.system()
+    home = Path.home()
+    
+    if system == "Windows":
+        roaming = os.environ.get("APPDATA", "")
+        if roaming:
+            cache_path = Path(roaming) / "ai.opencode.desktop" / "default.dat"
+            if cache_path.exists():
+                return cache_path
+    elif system == "Darwin":
+        cache_path = home / "Library" / "Application Support" / "ai.opencode.desktop" / "default.dat"
+        if cache_path.exists():
+            return cache_path
+    else:
+        # Linux - check XDG config
+        xdg_config = os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
+        cache_path = Path(xdg_config) / "ai.opencode.desktop" / "default.dat"
+        if cache_path.exists():
+            return cache_path
+    
+    return None
+
+
 def initialize_storage_path():
     """Initialize the global storage path from config or auto-detect."""
-    global STORAGE_PATH
-    STORAGE_PATH = load_config()
+    global STORAGE_PATH, DESKTOP_CACHE_PATH
+    config = load_config()
+    STORAGE_PATH = config.get("storage_path")
     if STORAGE_PATH:
         print(f"Loaded storage path from config: {STORAGE_PATH}")
-        return
-    STORAGE_PATH = get_default_storage_path()
-    if STORAGE_PATH:
-        save_config(STORAGE_PATH)
-        print(f"Auto-detected storage path: {STORAGE_PATH}")
+    else:
+        STORAGE_PATH = get_default_storage_path()
+        if STORAGE_PATH:
+            save_config(storage_path=STORAGE_PATH)
+            print(f"Auto-detected storage path: {STORAGE_PATH}")
+    
+    # Also detect Desktop app cache
+    DESKTOP_CACHE_PATH = get_desktop_cache_path()
+    if DESKTOP_CACHE_PATH:
+        print(f"Found OpenCode Desktop cache: {DESKTOP_CACHE_PATH}")
 
 
 # =============================================================================
@@ -427,8 +505,29 @@ async def set_storage_path(request: Request):
         )
     
     STORAGE_PATH = path
-    save_config(path)
+    save_config(storage_path=path)
     return {"path": str(STORAGE_PATH), "valid": True}
+
+
+@app.get("/api/theme")
+async def get_theme():
+    """Get the current theme from config."""
+    config = load_config()
+    return {"theme": config.get("theme", "default")}
+
+
+@app.post("/api/theme")
+async def set_theme(request: Request):
+    """Set and save the theme to config."""
+    data = await request.json()
+    theme = data.get("theme", "default")
+    
+    valid_themes = ["default", "glitch", "midnight", "forest"]
+    if theme not in valid_themes:
+        raise HTTPException(status_code=400, detail=f"Invalid theme. Must be one of: {', '.join(valid_themes)}")
+    
+    save_config(theme=theme)
+    return {"theme": theme}
 
 
 @app.get("/api/browse")
@@ -687,6 +786,87 @@ async def get_sessions(project_id: str, search: str = ""):
             })
         except (json.JSONDecodeError, IOError):
             continue
+    
+    sessions.sort(key=lambda x: x.get("updated") or 0, reverse=True)
+    return {"sessions": sessions}
+
+
+@app.get("/api/sessions/search")
+async def search_all_sessions(search: str = ""):
+    """Search sessions across all projects.
+    
+    Returns sessions matching the search term from all projects,
+    along with project information for each session.
+    """
+    if not STORAGE_PATH:
+        raise HTTPException(status_code=400, detail="Storage path not configured")
+    
+    if not search:
+        return {"sessions": []}
+    
+    sessions = []
+    session_base_dir = STORAGE_PATH / "session"
+    project_dir = STORAGE_PATH / "project"
+    
+    if not session_base_dir.exists():
+        return {"sessions": []}
+    
+    # Load all projects for name lookup
+    project_map = {}
+    if project_dir.exists():
+        for project_file in project_dir.glob("*.json"):
+            try:
+                with open(project_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                project_id = project_file.stem
+                project_map[project_id] = {
+                    "id": project_id,
+                    "name": data.get("name", project_id),
+                    "worktree": data.get("worktree", "")
+                }
+            except (json.JSONDecodeError, IOError):
+                continue
+    
+    # Search through all project session folders
+    search_lower = search.lower()
+    for project_folder in session_base_dir.iterdir():
+        if not project_folder.is_dir():
+            continue
+        
+        project_id = project_folder.name
+        project_info = project_map.get(project_id, {
+            "id": project_id,
+            "name": project_id,
+            "worktree": ""
+        })
+        
+        for session_file in project_folder.glob("*.json"):
+            try:
+                with open(session_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                
+                session_id = session_file.stem
+                title = data.get("title", session_id)
+                
+                # Search in title, session_id, and project name
+                if (search_lower not in title.lower() and 
+                    search_lower not in session_id.lower() and
+                    search_lower not in project_info["name"].lower()):
+                    continue
+                
+                file_size = session_file.stat().st_size
+                
+                sessions.append({
+                    "id": session_id,
+                    "title": title,
+                    "created": data.get("time", {}).get("created"),
+                    "updated": data.get("time", {}).get("updated"),
+                    "size": file_size,
+                    "project_id": project_id,
+                    "project_name": project_info["name"],
+                })
+            except (json.JSONDecodeError, IOError):
+                continue
     
     sessions.sort(key=lambda x: x.get("updated") or 0, reverse=True)
     return {"sessions": sessions}
@@ -1654,17 +1834,59 @@ def _get_all_valid_message_ids() -> set:
     return message_ids
 
 
+def _get_message_to_session_map() -> dict:
+    """Build a map of message ID -> session ID from message directory structure."""
+    msg_to_session = {}
+    message_base = STORAGE_PATH / "message"
+    if message_base.exists():
+        for session_dir in message_base.iterdir():
+            if session_dir.is_dir():
+                session_id = session_dir.name
+                for msg_file in session_dir.glob("*.json"):
+                    msg_to_session[msg_file.stem] = session_id
+    return msg_to_session
+
+
+def _get_projects_with_sessions() -> set:
+    """Get all project IDs that have at least one session."""
+    projects_with_sessions = set()
+    session_base = STORAGE_PATH / "session"
+    if session_base.exists():
+        for project_dir in session_base.iterdir():
+            if project_dir.is_dir():
+                # Check if this project dir has any session files
+                session_files = list(project_dir.glob("*.json"))
+                if session_files:
+                    projects_with_sessions.add(project_dir.name)
+    return projects_with_sessions
+
+
 @app.get("/api/orphans/scan")
 async def scan_orphans():
-    """Scan for orphaned data in storage folders."""
+    """Scan for orphaned data in storage folders.
+    
+    Detects:
+    - orphan_projects: Projects with no sessions (excluding 'global')
+    - session_diffs: Files referencing non-existent sessions
+    - todos: Files referencing non-existent sessions
+    - messages: Directories for non-existent sessions
+    - parts: Directories for non-existent messages
+    - mismatched_messages: Message files where internal sessionID doesn't match directory
+    - mismatched_parts: Part files with invalid sessionID or messageID references
+    - stale_cache_sessions: Sessions in Desktop cache that don't exist on disk
+    """
     if not STORAGE_PATH:
         raise HTTPException(status_code=400, detail="Storage path not configured")
     
     orphans = {
+        "orphan_projects": [],
         "session_diffs": [],
         "todos": [],
         "messages": [],
         "parts": [],
+        "mismatched_messages": [],
+        "mismatched_parts": [],
+        "stale_cache_sessions": [],
         "total_count": 0,
         "total_size": 0
     }
@@ -1674,6 +1896,34 @@ async def scan_orphans():
     
     # Get all valid message IDs
     valid_messages = _get_all_valid_message_ids()
+    
+    # Build message -> session mapping for cross-reference validation
+    msg_to_session = _get_message_to_session_map()
+    
+    # Get projects that have sessions
+    projects_with_sessions = _get_projects_with_sessions()
+    
+    # Check for orphan projects (projects with no sessions)
+    # NOTE: Skip "global" - OpenCode auto-creates it for non-git sessions
+    project_dir = STORAGE_PATH / "project"
+    if project_dir.exists():
+        for project_file in project_dir.glob("*.json"):
+            project_id = project_file.stem
+            if project_id not in projects_with_sessions and project_id != "global":
+                try:
+                    with open(project_file, 'r', encoding='utf-8') as f:
+                        project_data = json.load(f)
+                    size = project_file.stat().st_size
+                    orphans["orphan_projects"].append({
+                        "path": str(project_file),
+                        "project_id": project_id,
+                        "name": project_data.get("name", project_id),
+                        "worktree": project_data.get("worktree", ""),
+                        "size": size
+                    })
+                    orphans["total_size"] += size
+                except (json.JSONDecodeError, IOError):
+                    pass
     
     # Check session_diff folder for orphans
     session_diff_dir = STORAGE_PATH / "session_diff"
@@ -1703,14 +1953,14 @@ async def scan_orphans():
                 })
                 orphans["total_size"] += size
     
-    # Check message folder for orphaned session directories
+    # Check message folder for orphaned session directories AND mismatched sessionIDs
     message_dir = STORAGE_PATH / "message"
     if message_dir.exists():
         for session_msg_dir in message_dir.iterdir():
             if session_msg_dir.is_dir():
                 session_id = session_msg_dir.name
                 if session_id not in valid_sessions:
-                    # Count files and size in this orphaned directory
+                    # Entire directory is orphaned
                     dir_size = sum(f.stat().st_size for f in session_msg_dir.rglob("*") if f.is_file())
                     file_count = len(list(session_msg_dir.rglob("*.json")))
                     orphans["messages"].append({
@@ -1720,15 +1970,36 @@ async def scan_orphans():
                         "size": dir_size
                     })
                     orphans["total_size"] += dir_size
+                else:
+                    # Directory is valid, but check each message file's internal sessionID
+                    for msg_file in session_msg_dir.glob("*.json"):
+                        try:
+                            with open(msg_file, 'r', encoding='utf-8') as f:
+                                msg_data = json.load(f)
+                            internal_session_id = msg_data.get("sessionID", "")
+                            if internal_session_id and internal_session_id != session_id:
+                                size = msg_file.stat().st_size
+                                orphans["mismatched_messages"].append({
+                                    "path": str(msg_file),
+                                    "message_id": msg_file.stem,
+                                    "directory_session_id": session_id,
+                                    "internal_session_id": internal_session_id,
+                                    "size": size,
+                                    "issue": f"sessionID mismatch: file in '{session_id}' but references '{internal_session_id}'"
+                                })
+                                orphans["total_size"] += size
+                        except (json.JSONDecodeError, IOError):
+                            # Skip files that can't be read
+                            pass
     
-    # Check part folder for orphaned message directories
+    # Check part folder for orphaned message directories AND mismatched references
     part_dir = STORAGE_PATH / "part"
     if part_dir.exists():
         for msg_part_dir in part_dir.iterdir():
             if msg_part_dir.is_dir():
                 message_id = msg_part_dir.name
                 if message_id not in valid_messages:
-                    # Count files and size in this orphaned directory
+                    # Entire directory is orphaned
                     dir_size = sum(f.stat().st_size for f in msg_part_dir.rglob("*") if f.is_file())
                     file_count = len(list(msg_part_dir.rglob("*.json")))
                     orphans["parts"].append({
@@ -1738,12 +2009,98 @@ async def scan_orphans():
                         "size": dir_size
                     })
                     orphans["total_size"] += dir_size
+                else:
+                    # Directory is valid, check each part file's internal references
+                    expected_session_id = msg_to_session.get(message_id, None)
+                    for part_file in msg_part_dir.glob("*.json"):
+                        try:
+                            with open(part_file, 'r', encoding='utf-8') as f:
+                                part_data = json.load(f)
+                            
+                            issues = []
+                            internal_session_id = part_data.get("sessionID", "")
+                            internal_message_id = part_data.get("messageID", "")
+                            
+                            # Check if sessionID in part matches expected session
+                            if internal_session_id:
+                                if internal_session_id not in valid_sessions:
+                                    issues.append(f"sessionID '{internal_session_id}' doesn't exist")
+                                elif expected_session_id and internal_session_id != expected_session_id:
+                                    issues.append(f"sessionID mismatch: expected '{expected_session_id}', got '{internal_session_id}'")
+                            
+                            # Check if messageID in part matches the directory
+                            if internal_message_id and internal_message_id != message_id:
+                                issues.append(f"messageID mismatch: in dir '{message_id}' but references '{internal_message_id}'")
+                            
+                            # Check if internal messageID exists
+                            if internal_message_id and internal_message_id not in valid_messages:
+                                issues.append(f"messageID '{internal_message_id}' doesn't exist")
+                            
+                            if issues:
+                                size = part_file.stat().st_size
+                                orphans["mismatched_parts"].append({
+                                    "path": str(part_file),
+                                    "part_id": part_file.stem,
+                                    "directory_message_id": message_id,
+                                    "internal_session_id": internal_session_id,
+                                    "internal_message_id": internal_message_id,
+                                    "expected_session_id": expected_session_id,
+                                    "size": size,
+                                    "issues": issues
+                                })
+                                orphans["total_size"] += size
+                        except (json.JSONDecodeError, IOError):
+                            # Skip files that can't be read
+                            pass
+    
+    # Check OpenCode Desktop cache for stale session references
+    if DESKTOP_CACHE_PATH and DESKTOP_CACHE_PATH.exists():
+        try:
+            with open(DESKTOP_CACHE_PATH, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
+            # Extract session IDs from cache keys and notification data
+            stale_sessions_found = set()
+            for key, value in cache_data.items():
+                # Check notification list for stale sessions
+                if key == "notification.v1":
+                    try:
+                        notif_data = json.loads(value)
+                        for notif in notif_data.get("list", []):
+                            session_id = notif.get("session", "")
+                            if session_id and session_id.startswith("ses_"):
+                                if session_id not in valid_sessions:
+                                    stale_sessions_found.add(session_id)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                # Check other keys that might contain session references
+                elif ".v1" in key or ".v2" in key:
+                    # Keys like "path/prompt/ses_xxx.v1" or "path/terminal/ses_xxx.v1"
+                    parts = key.split("/")
+                    for part in parts:
+                        if part.startswith("ses_") and ".v" in part:
+                            session_id = part.split(".v")[0]
+                            if session_id not in valid_sessions:
+                                stale_sessions_found.add(session_id)
+            
+            for session_id in stale_sessions_found:
+                orphans["stale_cache_sessions"].append({
+                    "session_id": session_id,
+                    "cache_file": str(DESKTOP_CACHE_PATH),
+                    "size": 0  # Can't easily determine per-entry size
+                })
+        except (json.JSONDecodeError, IOError):
+            pass
     
     orphans["total_count"] = (
+        len(orphans["orphan_projects"]) +
         len(orphans["session_diffs"]) + 
         len(orphans["todos"]) + 
         len(orphans["messages"]) + 
-        len(orphans["parts"])
+        len(orphans["parts"]) +
+        len(orphans["mismatched_messages"]) +
+        len(orphans["mismatched_parts"]) +
+        len(orphans["stale_cache_sessions"])
     )
     
     return orphans
@@ -1751,22 +2108,43 @@ async def scan_orphans():
 
 @app.post("/api/orphans/cleanup")
 async def cleanup_orphans():
-    """Delete all orphaned data."""
+    """Delete all orphaned data including mismatched internal references."""
     if not STORAGE_PATH:
         raise HTTPException(status_code=400, detail="Storage path not configured")
     
-    # First scan for orphans
+    # First scan for orphans to get the complete picture
     valid_sessions = _get_all_valid_session_ids()
     valid_messages = _get_all_valid_message_ids()
+    msg_to_session = _get_message_to_session_map()
+    projects_with_sessions = _get_projects_with_sessions()
     
     deleted = {
+        "orphan_projects": 0,
         "session_diffs": 0,
         "todos": 0,
         "messages": 0,
         "parts": 0,
+        "mismatched_messages": 0,
+        "mismatched_parts": 0,
+        "stale_cache_sessions": 0,
         "total_size_freed": 0
     }
     errors = []
+    
+    # Delete orphan projects (projects with no sessions)
+    # NOTE: Skip "global" project - OpenCode auto-creates it and needs it
+    project_dir = STORAGE_PATH / "project"
+    if project_dir.exists():
+        for project_file in project_dir.glob("*.json"):
+            project_id = project_file.stem
+            if project_id not in projects_with_sessions and project_id != "global":
+                try:
+                    size = project_file.stat().st_size
+                    project_file.unlink()
+                    deleted["orphan_projects"] += 1
+                    deleted["total_size_freed"] += size
+                except Exception as e:
+                    errors.append({"path": str(project_file), "error": str(e)})
     
     # Delete orphaned session_diffs
     session_diff_dir = STORAGE_PATH / "session_diff"
@@ -1794,31 +2172,139 @@ async def cleanup_orphans():
                 except Exception as e:
                     errors.append({"path": str(todo_file), "error": str(e)})
     
-    # Delete orphaned message directories
+    # Delete orphaned message directories AND mismatched message files
     message_dir = STORAGE_PATH / "message"
     if message_dir.exists():
         for session_msg_dir in message_dir.iterdir():
-            if session_msg_dir.is_dir() and session_msg_dir.name not in valid_sessions:
-                try:
-                    dir_size = sum(f.stat().st_size for f in session_msg_dir.rglob("*") if f.is_file())
-                    shutil.rmtree(str(session_msg_dir))
-                    deleted["messages"] += 1
-                    deleted["total_size_freed"] += dir_size
-                except Exception as e:
-                    errors.append({"path": str(session_msg_dir), "error": str(e)})
+            if session_msg_dir.is_dir():
+                session_id = session_msg_dir.name
+                if session_id not in valid_sessions:
+                    # Delete entire orphaned directory
+                    try:
+                        dir_size = sum(f.stat().st_size for f in session_msg_dir.rglob("*") if f.is_file())
+                        shutil.rmtree(str(session_msg_dir))
+                        deleted["messages"] += 1
+                        deleted["total_size_freed"] += dir_size
+                    except Exception as e:
+                        errors.append({"path": str(session_msg_dir), "error": str(e)})
+                else:
+                    # Check individual message files for mismatched sessionIDs
+                    for msg_file in session_msg_dir.glob("*.json"):
+                        try:
+                            with open(msg_file, 'r', encoding='utf-8') as f:
+                                msg_data = json.load(f)
+                            internal_session_id = msg_data.get("sessionID", "")
+                            if internal_session_id and internal_session_id != session_id:
+                                size = msg_file.stat().st_size
+                                msg_file.unlink()
+                                deleted["mismatched_messages"] += 1
+                                deleted["total_size_freed"] += size
+                        except (json.JSONDecodeError, IOError):
+                            pass
+                        except Exception as e:
+                            errors.append({"path": str(msg_file), "error": str(e)})
     
-    # Delete orphaned part directories
+    # Delete orphaned part directories AND mismatched part files
     part_dir = STORAGE_PATH / "part"
     if part_dir.exists():
         for msg_part_dir in part_dir.iterdir():
-            if msg_part_dir.is_dir() and msg_part_dir.name not in valid_messages:
+            if msg_part_dir.is_dir():
+                message_id = msg_part_dir.name
+                if message_id not in valid_messages:
+                    # Delete entire orphaned directory
+                    try:
+                        dir_size = sum(f.stat().st_size for f in msg_part_dir.rglob("*") if f.is_file())
+                        shutil.rmtree(str(msg_part_dir))
+                        deleted["parts"] += 1
+                        deleted["total_size_freed"] += dir_size
+                    except Exception as e:
+                        errors.append({"path": str(msg_part_dir), "error": str(e)})
+                else:
+                    # Check individual part files for mismatched references
+                    expected_session_id = msg_to_session.get(message_id, None)
+                    for part_file in msg_part_dir.glob("*.json"):
+                        try:
+                            with open(part_file, 'r', encoding='utf-8') as f:
+                                part_data = json.load(f)
+                            
+                            has_issues = False
+                            internal_session_id = part_data.get("sessionID", "")
+                            internal_message_id = part_data.get("messageID", "")
+                            
+                            # Check for invalid sessionID
+                            if internal_session_id:
+                                if internal_session_id not in valid_sessions:
+                                    has_issues = True
+                                elif expected_session_id and internal_session_id != expected_session_id:
+                                    has_issues = True
+                            
+                            # Check for mismatched or invalid messageID
+                            if internal_message_id:
+                                if internal_message_id != message_id:
+                                    has_issues = True
+                                if internal_message_id not in valid_messages:
+                                    has_issues = True
+                            
+                            if has_issues:
+                                size = part_file.stat().st_size
+                                part_file.unlink()
+                                deleted["mismatched_parts"] += 1
+                                deleted["total_size_freed"] += size
+                        except (json.JSONDecodeError, IOError):
+                            pass
+                        except Exception as e:
+                            errors.append({"path": str(part_file), "error": str(e)})
+    
+    # Clean up stale sessions from OpenCode Desktop cache
+    if DESKTOP_CACHE_PATH and DESKTOP_CACHE_PATH.exists():
+        try:
+            with open(DESKTOP_CACHE_PATH, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
+            modified = False
+            keys_to_remove = []
+            
+            # Find and remove stale session keys
+            for key in list(cache_data.keys()):
+                if ".v1" in key or ".v2" in key:
+                    parts = key.split("/")
+                    for part in parts:
+                        if part.startswith("ses_") and ".v" in part:
+                            session_id = part.split(".v")[0]
+                            if session_id not in valid_sessions:
+                                keys_to_remove.append(key)
+                                break
+            
+            # Clean notification list
+            if "notification.v1" in cache_data:
                 try:
-                    dir_size = sum(f.stat().st_size for f in msg_part_dir.rglob("*") if f.is_file())
-                    shutil.rmtree(str(msg_part_dir))
-                    deleted["parts"] += 1
-                    deleted["total_size_freed"] += dir_size
-                except Exception as e:
-                    errors.append({"path": str(msg_part_dir), "error": str(e)})
+                    notif_data = json.loads(cache_data["notification.v1"])
+                    original_count = len(notif_data.get("list", []))
+                    notif_data["list"] = [
+                        n for n in notif_data.get("list", [])
+                        if n.get("session", "").startswith("ses_") and n.get("session") in valid_sessions
+                        or not n.get("session", "").startswith("ses_")
+                    ]
+                    new_count = len(notif_data.get("list", []))
+                    if new_count < original_count:
+                        cache_data["notification.v1"] = json.dumps(notif_data)
+                        deleted["stale_cache_sessions"] += (original_count - new_count)
+                        modified = True
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            
+            # Remove stale keys
+            for key in keys_to_remove:
+                del cache_data[key]
+                deleted["stale_cache_sessions"] += 1
+                modified = True
+            
+            # Write back if modified
+            if modified:
+                with open(DESKTOP_CACHE_PATH, 'w', encoding='utf-8') as f:
+                    json.dump(cache_data, f)
+        except Exception as e:
+            errors.append({"path": str(DESKTOP_CACHE_PATH), "error": str(e)})
     
     return {"deleted": deleted, "errors": errors}
 
@@ -1833,12 +2319,104 @@ def open_browser(port: int):
     webbrowser.open(f"http://localhost:{port}")
 
 
+def check_existing_instance(port: int) -> bool:
+    """Check if another instance is already running on the port.
+    
+    Returns True if we should continue starting, False if we should exit.
+    """
+    import socket
+    import urllib.request
+    import urllib.error
+    
+    # First check if port is in use
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)
+    result = sock.connect_ex(('127.0.0.1', port))
+    sock.close()
+    
+    if result != 0:
+        # Port is free, no existing instance
+        return True
+    
+    # Port is in use - check if it's our app by hitting the API
+    try:
+        req = urllib.request.Request(f'http://localhost:{port}/api/storage-path', method='GET')
+        with urllib.request.urlopen(req, timeout=2) as response:
+            if response.status == 200:
+                # It's our app! Ask user what to do
+                print(f"\n*** Another instance is already running on port {port} ***\n")
+                print("Options:")
+                print("  [1] Open browser to existing instance (default)")
+                print("  [2] Shutdown existing instance and start new one")
+                print("  [3] Exit")
+                print()
+                
+                try:
+                    choice = input("Enter choice [1/2/3]: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    choice = "3"
+                
+                if choice == "2":
+                    # Shutdown existing instance
+                    print("Shutting down existing instance...")
+                    try:
+                        shutdown_req = urllib.request.Request(
+                            f'http://localhost:{port}/api/shutdown',
+                            method='POST',
+                            headers={'Content-Type': 'application/json'}
+                        )
+                        urllib.request.urlopen(shutdown_req, timeout=5)
+                    except urllib.error.URLError:
+                        pass  # Expected - server is shutting down
+                    
+                    # Wait for port to be freed
+                    print("Waiting for port to be freed...")
+                    for _ in range(10):
+                        time.sleep(0.5)
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        sock.settimeout(1)
+                        if sock.connect_ex(('127.0.0.1', port)) != 0:
+                            sock.close()
+                            print("Port freed. Starting new instance...\n")
+                            return True
+                        sock.close()
+                    
+                    print("Warning: Port may still be in use. Attempting to start anyway...\n")
+                    return True
+                    
+                elif choice == "3":
+                    print("Exiting.")
+                    return False
+                    
+                else:
+                    # Default: open browser to existing instance
+                    print(f"Opening browser to existing instance...")
+                    webbrowser.open(f"http://localhost:{port}")
+                    return False
+                    
+    except urllib.error.URLError:
+        # Port is in use but not by our app
+        print(f"\n*** Error: Port {port} is already in use by another application ***")
+        print("Please close the other application or change the port.")
+        input("Press Enter to exit...")
+        return False
+    except Exception as e:
+        print(f"Error checking existing instance: {e}")
+        return True
+    
+    return True
+
+
 if __name__ == "__main__":
     PORT = 8765
     
     print("=" * 50)
     print("OpenCode Session Manager")
     print("=" * 50)
+    
+    # Check for existing instance before doing anything else
+    if not check_existing_instance(PORT):
+        sys.exit(0)
     
     initialize_storage_path()
     

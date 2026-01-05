@@ -1,0 +1,225 @@
+/* OpenCode Session Manager - Color Themes */
+
+/* =============================================================================
+   Theme: Default (Original)
+   A deep blue/navy theme with red accents
+   ============================================================================= */
+[data-theme="default"] {
+    /* Background colors */
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-tertiary: #0f3460;
+    --bg-hover: #232342;
+    --bg-selected: #2a2a4e;
+    --bg-multi-selected: #1a3a5e;
+    --bg-drag-over: #1a4a3e;
+    
+    /* Text colors */
+    --text-primary: #eee;
+    --text-secondary: #aaa;
+    --text-muted: #888;
+    --text-dim: #666;
+    
+    /* Accent colors */
+    --accent-primary: #e94560;
+    --accent-primary-hover: #ff6b6b;
+    --accent-secondary: #3498db;
+    --accent-secondary-hover: #2980b9;
+    
+    /* Border colors */
+    --border-primary: #0f3460;
+    --border-secondary: #1a4a7a;
+    
+    /* Button colors (unified) */
+    --btn-create: #2ecc71;
+    --btn-create-hover: #27ae60;
+    --btn-delete: #c0392b;
+    --btn-delete-hover: #e74c3c;
+    --btn-standard: #0f3460;
+    --btn-standard-hover: #1a4a7a;
+    
+    /* Status colors */
+    --color-success: #2ecc71;
+    --color-warning: #f39c12;
+    --color-danger: #e74c3c;
+    
+    /* Special colors */
+    --color-user-message: #0f3460;
+    --color-assistant-message: #1a4a3e;
+    --color-badge: #0f3460;
+    --color-badge-project: #9b59b6;
+    --color-highlight: #f39c12;
+    --color-highlight-current: #e94560;
+    
+    /* Spinner */
+    --spinner-track: #0f3460;
+    --spinner-fill: #e94560;
+}
+
+/* =============================================================================
+   Theme: Glitch (Based on Logo)
+   Cyberpunk aesthetic with cyan and magenta on black
+   ============================================================================= */
+[data-theme="glitch"] {
+    /* Background colors - pure blacks and dark grays */
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #111111;
+    --bg-tertiary: #1a1a1a;
+    --bg-hover: #1f1f1f;
+    --bg-selected: #0d1f2d;
+    --bg-multi-selected: #1a0d2d;
+    --bg-drag-over: #0d2d1a;
+    
+    /* Text colors */
+    --text-primary: #f0f0f0;
+    --text-secondary: #b0b0b0;
+    --text-muted: #707070;
+    --text-dim: #505050;
+    
+    /* Accent colors - cyan and magenta from logo */
+    --accent-primary: #00f0f0;
+    --accent-primary-hover: #40ffff;
+    --accent-secondary: #f040f0;
+    --accent-secondary-hover: #ff70ff;
+    
+    /* Border colors */
+    --border-primary: #252525;
+    --border-secondary: #353535;
+    
+    /* Button colors (unified) */
+    --btn-create: #00ff88;
+    --btn-create-hover: #40ffa0;
+    --btn-delete: #ff3366;
+    --btn-delete-hover: #ff5588;
+    --btn-standard: #252525;
+    --btn-standard-hover: #353535;
+    
+    /* Status colors */
+    --color-success: #00ff88;
+    --color-warning: #ffcc00;
+    --color-danger: #ff3366;
+    
+    /* Special colors */
+    --color-user-message: #0d1f2d;
+    --color-assistant-message: #1a0d20;
+    --color-badge: #252525;
+    --color-badge-project: #f040f0;
+    --color-highlight: #ffcc00;
+    --color-highlight-current: #00f0f0;
+    
+    /* Spinner */
+    --spinner-track: #252525;
+    --spinner-fill: #00f0f0;
+}
+
+/* =============================================================================
+   Theme: Midnight
+   Dark purple theme with violet accents
+   ============================================================================= */
+[data-theme="midnight"] {
+    /* Background colors */
+    --bg-primary: #13111c;
+    --bg-secondary: #1a1726;
+    --bg-tertiary: #251f36;
+    --bg-hover: #2a2440;
+    --bg-selected: #352d4a;
+    --bg-multi-selected: #2d2850;
+    --bg-drag-over: #2d3850;
+    
+    /* Text colors */
+    --text-primary: #e8e6f0;
+    --text-secondary: #a8a4b8;
+    --text-muted: #706c80;
+    --text-dim: #504c60;
+    
+    /* Accent colors */
+    --accent-primary: #a855f7;
+    --accent-primary-hover: #c084fc;
+    --accent-secondary: #6366f1;
+    --accent-secondary-hover: #818cf8;
+    
+    /* Border colors */
+    --border-primary: #2d2840;
+    --border-secondary: #3d3850;
+    
+    /* Button colors (unified) */
+    --btn-create: #4ade80;
+    --btn-create-hover: #6ee7a0;
+    --btn-delete: #f87171;
+    --btn-delete-hover: #fca5a5;
+    --btn-standard: #2d2840;
+    --btn-standard-hover: #3d3850;
+    
+    /* Status colors */
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
+    --color-danger: #f87171;
+    
+    /* Special colors */
+    --color-user-message: #251f36;
+    --color-assistant-message: #1f2536;
+    --color-badge: #2d2840;
+    --color-badge-project: #a855f7;
+    --color-highlight: #fbbf24;
+    --color-highlight-current: #a855f7;
+    
+    /* Spinner */
+    --spinner-track: #2d2840;
+    --spinner-fill: #a855f7;
+}
+
+/* =============================================================================
+   Theme: Forest
+   Dark green theme with nature-inspired accents
+   ============================================================================= */
+[data-theme="forest"] {
+    /* Background colors */
+    --bg-primary: #0d1512;
+    --bg-secondary: #121a16;
+    --bg-tertiary: #1a2620;
+    --bg-hover: #1f2d26;
+    --bg-selected: #1a3028;
+    --bg-multi-selected: #1a2830;
+    --bg-drag-over: #2a3020;
+    
+    /* Text colors */
+    --text-primary: #e6f0ea;
+    --text-secondary: #a4b8ac;
+    --text-muted: #6c806f;
+    --text-dim: #4c604f;
+    
+    /* Accent colors */
+    --accent-primary: #4ade80;
+    --accent-primary-hover: #6ee7a0;
+    --accent-secondary: #2dd4bf;
+    --accent-secondary-hover: #5eead4;
+    
+    /* Border colors */
+    --border-primary: #1f3028;
+    --border-secondary: #2a3d32;
+    
+    /* Button colors (unified) */
+    --btn-create: #4ade80;
+    --btn-create-hover: #6ee7a0;
+    --btn-delete: #f87171;
+    --btn-delete-hover: #fca5a5;
+    --btn-standard: #1f3028;
+    --btn-standard-hover: #2a3d32;
+    
+    /* Status colors */
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
+    --color-danger: #f87171;
+    
+    /* Special colors */
+    --color-user-message: #1a2620;
+    --color-assistant-message: #1a2026;
+    --color-badge: #1f3028;
+    --color-badge-project: #2dd4bf;
+    --color-highlight: #fbbf24;
+    --color-highlight-current: #4ade80;
+    
+    /* Spinner */
+    --spinner-track: #1f3028;
+    --spinner-fill: #4ade80;
+}

@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="default">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenCode Session Manager</title>
     <script async src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js" onerror="console.warn('SortableJS failed to load - drag/drop disabled')"></script>
+    <link rel="stylesheet" href="/static/themes.css">
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -12,11 +13,20 @@
         <h1>OpenCode Session Manager</h1>
         <label>Storage Path:</label>
         <input type="text" id="storagePath" placeholder="Path to OpenCode storage..." onchange="loadStoragePath()" onkeydown="if(event.key==='Enter') loadStoragePath()">
-        <button class="btn btn-secondary" onclick="browsePath()">Browse</button>
-        <button class="btn btn-secondary" onclick="refresh()">Refresh</button>
+        <button class="btn btn-standard" onclick="browsePath()">Browse</button>
+        <button class="btn btn-standard" onclick="refresh()">Refresh</button>
         <div class="status">
             <span class="status-dot" id="statusDot"></span>
             <span id="statusText">Not connected</span>
+        </div>
+        <div class="theme-selector">
+            <label for="themeSelect">Theme:</label>
+            <select id="themeSelect" onchange="changeTheme(this.value)">
+                <option value="default">Default</option>
+                <option value="glitch">Glitch</option>
+                <option value="midnight">Midnight</option>
+                <option value="forest">Forest</option>
+            </select>
         </div>
         <button class="btn-power" onclick="shutdownApp()" title="Shutdown application">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -29,7 +39,10 @@
         <div class="column">
             <div class="column-header">
                 <h2>Projects</h2>
-                <input type="text" id="projectSearch" placeholder="Filter projects..." oninput="filterProjects()">
+                <div class="search-wrapper">
+                    <input type="text" id="projectSearch" placeholder="Filter projects..." oninput="filterProjects()">
+                    <button class="search-clear" id="projectSearchClear" onclick="clearProjectSearch()" title="Clear search">&times;</button>
+                </div>
             </div>
             <div class="column-content" id="projectList">
                 <div class="empty-state"><p>No projects loaded</p><p>Configure storage path above</p></div>
@@ -38,32 +51,49 @@
         <div class="column">
             <div class="column-header">
                 <h2>Sessions</h2>
-                <input type="text" id="sessionSearch" placeholder="Filter sessions..." oninput="filterSessions()">
+                <div class="search-wrapper">
+                    <input type="text" id="sessionSearch" placeholder="Search all sessions..." oninput="filterSessions()">
+                    <button class="search-clear" id="sessionSearchClear" onclick="clearSessionSearch()" title="Clear search">&times;</button>
+                </div>
             </div>
             <div class="column-content" id="sessionList">
                 <div class="empty-state"><p>Select a project</p></div>
             </div>
         </div>
         <div class="column">
-            <div class="column-header"><h2>Preview</h2></div>
+            <div class="column-header">
+                <h2>Preview</h2>
+                <div class="search-wrapper">
+                    <input type="text" id="previewSearch" placeholder="Search in preview..." oninput="filterPreview()" onkeydown="handlePreviewSearchKey(event)" disabled>
+                    <span class="search-nav" id="previewSearchNav">
+                        <span class="match-count" id="previewMatchCount"></span>
+                        <button class="nav-btn" onclick="prevMatch()" title="Previous match (Shift+Enter)">&#9650;</button>
+                        <button class="nav-btn" onclick="nextMatch()" title="Next match (Enter)">&#9660;</button>
+                    </span>
+                    <button class="search-clear" id="previewSearchClear" onclick="clearPreviewSearch()" title="Clear search">&times;</button>
+                </div>
+            </div>
             <div class="column-content preview-content" id="previewContent">
                 <div class="empty-state"><p>Select a session to preview</p></div>
             </div>
         </div>
         <div class="column">
-            <div class="column-header"><h2>Session Stats</h2></div>
+            <div class="column-header">
+                <h2>Session Stats</h2>
+                <div class="header-spacer"></div>
+            </div>
             <div class="column-content stats-content" id="statsContent">
                 <div class="empty-state"><p>Select a session</p></div>
             </div>
         </div>
     </div>
     <div class="bottom-bar">
-        <button class="btn btn-success" id="addBtn" onclick="showAddProjectModal()">Add Project</button>
-        <button class="btn btn-danger" id="deleteBtn" onclick="showDeleteModal()" disabled>Delete</button>
-        <button class="btn btn-secondary" id="editBtn" onclick="showEditModal()" disabled>Edit</button>
-        <button class="btn btn-info" id="checkRepairBtn" onclick="checkRepairProject()" disabled title="Check and repair selected project">Check & Repair</button>
-        <button class="btn btn-warning" id="scanOrphansBtn" onclick="showScanOrphansModal()" title="Scan for orphaned data">Scan Orphans</button>
-        <button class="btn btn-undo" id="undoBtn" onclick="performUndo()" disabled>
+        <button class="btn btn-create" id="addBtn" onclick="showAddProjectModal()">Add Project</button>
+        <button class="btn btn-delete" id="deleteBtn" onclick="showDeleteModal()" disabled>Delete</button>
+        <button class="btn btn-standard" id="editBtn" onclick="showEditModal()" disabled>Edit</button>
+        <button class="btn btn-standard" id="checkRepairBtn" onclick="checkRepairProject()" disabled title="Check and repair selected project">Check & Repair</button>
+        <button class="btn btn-standard" id="scanOrphansBtn" onclick="showScanOrphansModal()" title="Scan for orphaned data">Scan Orphans</button>
+        <button class="btn btn-standard btn-undo" id="undoBtn" onclick="performUndo()" disabled>
             &#8630;<span class="tooltip" id="undoTooltip">Nothing to undo</span>
         </button>
     </div>
@@ -73,8 +103,8 @@
             <p>Are you sure you want to delete the following items? This action cannot be undone.</p>
             <div class="delete-list" id="deleteList"></div>
             <div class="modal-buttons">
-                <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
-                <button class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+                <button class="btn btn-standard" onclick="closeDeleteModal()">Cancel</button>
+                <button class="btn btn-delete" onclick="confirmDelete()">Delete</button>
             </div>
         </div>
     </div>
@@ -89,12 +119,12 @@
                 <label>Worktree Path</label>
                 <div style="display:flex;gap:8px;">
                     <input type="text" id="editWorktree" placeholder="Path to working directory..." style="flex:1;margin-bottom:0;">
-                    <button class="btn btn-secondary" onclick="browseWorktree()">Browse</button>
+                    <button class="btn btn-standard" onclick="browseWorktree()">Browse</button>
                 </div>
             </div>
             <div class="modal-buttons">
-                <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmEdit()">Save</button>
+                <button class="btn btn-standard" onclick="closeEditModal()">Cancel</button>
+                <button class="btn btn-create" onclick="confirmEdit()">Save</button>
             </div>
         </div>
     </div>
@@ -109,12 +139,12 @@
                 <label>Worktree Path (optional)</label>
                 <div style="display:flex;gap:8px;">
                     <input type="text" id="newProjectWorktree" placeholder="Path to working directory..." style="flex:1;margin-bottom:0;">
-                    <button class="btn btn-secondary" onclick="browseNewProjectWorktree()">Browse</button>
+                    <button class="btn btn-standard" onclick="browseNewProjectWorktree()">Browse</button>
                 </div>
             </div>
             <div class="modal-buttons">
-                <button class="btn btn-secondary" onclick="closeAddProjectModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmAddProject()">Create</button>
+                <button class="btn btn-standard" onclick="closeAddProjectModal()">Cancel</button>
+                <button class="btn btn-create" onclick="confirmAddProject()">Create</button>
             </div>
         </div>
     </div>
@@ -122,7 +152,7 @@
         <div class="modal">
             <h3 id="scanOrphansTitle">Scan for Orphaned Data</h3>
             <div id="scanOrphansContent">
-                <p class="warning-text">This will scan all storage folders for orphaned data (session_diffs, todos, messages, and parts that no longer have associated sessions).</p>
+                <p class="warning-text">This will scan all storage folders for orphaned data (session_diffs, todos, messages, parts) and also detect mismatched internal references (files with invalid sessionID or messageID fields).</p>
                 <p class="warning-text"><strong>Note:</strong> This scan may take a while depending on the amount of data.</p>
             </div>
             <div id="scanOrphansResults" style="display:none;">
@@ -130,9 +160,9 @@
                 <div class="orphan-details" id="orphanDetails"></div>
             </div>
             <div class="modal-buttons">
-                <button class="btn btn-secondary" onclick="closeScanOrphansModal()">Close</button>
-                <button class="btn btn-warning" id="startScanBtn" onclick="startOrphanScan()">Start Scan</button>
-                <button class="btn btn-danger" id="cleanupOrphansBtn" onclick="cleanupOrphans()" style="display:none;">Delete Orphans</button>
+                <button class="btn btn-standard" onclick="closeScanOrphansModal()">Close</button>
+                <button class="btn btn-standard" id="startScanBtn" onclick="startOrphanScan()">Start Scan</button>
+                <button class="btn btn-delete" id="cleanupOrphansBtn" onclick="cleanupOrphans()" style="display:none;">Delete Orphans</button>
             </div>
         </div>
     </div>

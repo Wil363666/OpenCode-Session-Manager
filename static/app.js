@@ -7,11 +7,41 @@ let selectedSessionId = null;
 let multiSelectedProjects = new Set();
 let multiSelectedSessions = new Set();
 let selectionMode = null;
+let isGlobalSearch = false;
+let previewMessages = [];
+let previewMatchIndex = -1;
+let previewMatchCount = 0;
 
 document.addEventListener('DOMContentLoaded', async () => {
+    await loadTheme();
     await checkStoragePath();
     await updateUndoButton();
 });
+
+async function loadTheme() {
+    try {
+        const data = await api('/theme');
+        const theme = data.theme || 'default';
+        document.documentElement.setAttribute('data-theme', theme);
+        const selector = document.getElementById('themeSelect');
+        if (selector) selector.value = theme;
+    } catch (e) {
+        console.error('Failed to load theme:', e);
+        document.documentElement.setAttribute('data-theme', 'default');
+    }
+}
+
+async function changeTheme(themeName) {
+    document.documentElement.setAttribute('data-theme', themeName);
+    try {
+        await api('/theme', {
+            method: 'POST',
+            body: JSON.stringify({ theme: themeName })
+        });
+    } catch (e) {
+        console.error('Failed to save theme:', e);
+    }
+}
 
 async function api(endpoint, options = {}) {
     const response = await fetch('/api' + endpoint, {
@@ -135,26 +165,48 @@ async function selectProject(projectId, event) {
         selectionMode = null;
         selectedProjectId = projectId;
         selectedSessionId = null;
+        isGlobalSearch = false;
+        // Clear session search when selecting a project
+        document.getElementById('sessionSearch').value = '';
         renderProjects();
         await loadSessions(projectId);
-        document.getElementById('previewContent').innerHTML = '<div class="empty-state"><p>Select a session to preview</p></div>';
-        document.getElementById('statsContent').innerHTML = '<div class="empty-state"><p>Select a session</p></div>';
+        clearPreviewState();
     }
     updateButtons();
+}
+
+function clearPreviewState() {
+    previewMessages = [];
+    previewMatchIndex = -1;
+    previewMatchCount = 0;
+    document.getElementById('previewContent').innerHTML = '<div class="empty-state"><p>Select a session to preview</p></div>';
+    document.getElementById('statsContent').innerHTML = '<div class="empty-state"><p>Select a session</p></div>';
+    const searchInput = document.getElementById('previewSearch');
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.disabled = true;
+        searchInput.classList.remove('has-nav');
+    }
+    const navContainer = document.getElementById('previewSearchNav');
+    if (navContainer) navContainer.classList.remove('visible');
+    updatePreviewSearchClearButton();
 }
 
 async function loadSessions(projectId, search = '') {
     try {
         const data = await api('/projects/' + projectId + '/sessions?search=' + encodeURIComponent(search));
         sessions = data.sessions;
+        isGlobalSearch = false;
         renderSessions();
     } catch (e) { console.error(e); }
 }
 
 function renderSessions() {
     const container = document.getElementById('sessionList');
-    if (!selectedProjectId) {
-        container.innerHTML = '<div class="empty-state"><p>Select a project</p></div>';
+    const searchTerm = document.getElementById('sessionSearch').value.trim();
+    
+    if (!selectedProjectId && !isGlobalSearch) {
+        container.innerHTML = '<div class="empty-state"><p>Select a project or search</p></div>';
         return;
     }
     if (sessions.length === 0) {
@@ -164,14 +216,18 @@ function renderSessions() {
     container.innerHTML = sessions.map(s => {
         const selected = s.id === selectedSessionId ? 'selected' : '';
         const multi = multiSelectedSessions.has(s.id) ? 'multi-selected' : '';
-        return `<div class="list-item session-item ${selected} ${multi}" data-id="${s.id}" draggable="true" onclick="selectSession('${s.id}', event)">
-            <div class="title">${escapeHtml(s.title || s.id)}</div>
+        const projectId = s.project_id || selectedProjectId;
+        const projectBadge = isGlobalSearch && s.project_name 
+            ? `<span class="badge project-badge">${escapeHtml(s.project_name)}</span>` 
+            : '';
+        return `<div class="list-item session-item ${selected} ${multi}" data-id="${s.id}" data-project-id="${projectId}" draggable="true" onclick="selectSession('${s.id}', event, '${projectId}')">
+            <div class="title">${escapeHtml(s.title || s.id)}${projectBadge}</div>
             <div class="subtitle">${formatDate(s.updated || s.created)}</div></div>`;
     }).join('');
     initSortable();
 }
 
-async function selectSession(sessionId, event) {
+async function selectSession(sessionId, event, projectId = null) {
     if (event.ctrlKey || event.metaKey) {
         if (selectionMode === 'projects') multiSelectedProjects.clear();
         selectionMode = 'sessions';
@@ -184,6 +240,13 @@ async function selectSession(sessionId, event) {
         multiSelectedSessions.clear();
         selectionMode = null;
         selectedSessionId = sessionId;
+        
+        // If in global search and we have a project ID, highlight the corresponding project
+        if (isGlobalSearch && projectId) {
+            selectedProjectId = projectId;
+            renderProjects();
+        }
+        
         renderSessions();
         await loadPreview(sessionId);
         await loadStats(sessionId);
@@ -193,20 +256,161 @@ async function selectSession(sessionId, event) {
 
 async function loadPreview(sessionId) {
     const container = document.getElementById('previewContent');
+    const searchInput = document.getElementById('previewSearch');
     container.innerHTML = '<div class="empty-state"><p>Loading...</p></div>';
+    
+    previewMatchIndex = -1;
+    previewMatchCount = 0;
+    
+    if (searchInput) {
+        searchInput.disabled = true;
+        searchInput.value = '';
+        searchInput.classList.remove('has-nav');
+    }
+    updatePreviewSearchClearButton();
+    updatePreviewNavigation();
+    
     try {
         const data = await api('/sessions/' + sessionId + '/preview');
-        if (data.messages.length === 0) {
+        previewMessages = data.messages;
+        if (previewMessages.length === 0) {
             container.innerHTML = '<div class="empty-state"><p>No messages found</p></div>';
             return;
         }
-        container.innerHTML = data.messages.map(m =>
-            `<div class="message ${m.role}">
-            <div class="role">${escapeHtml(m.role)}</div>
-            <div class="content">${escapeHtml(m.content)}</div></div>`
-        ).join('');
+        if (searchInput) searchInput.disabled = false;
+        renderPreview();
     } catch (e) {
+        previewMessages = [];
         container.innerHTML = '<div class="empty-state"><p>Error: ' + escapeHtml(e.message) + '</p></div>';
+    }
+}
+
+function renderPreview(searchTerm = '') {
+    const container = document.getElementById('previewContent');
+    
+    if (previewMessages.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>No messages found</p></div>';
+        updatePreviewNavigation();
+        return;
+    }
+    
+    let matchIndex = 0;
+    previewMatchCount = 0;
+    
+    container.innerHTML = previewMessages.map(m => {
+        let content = escapeHtml(m.content);
+        if (searchTerm) {
+            const result = highlightTextWithIndex(content, searchTerm, matchIndex);
+            content = result.text;
+            matchIndex = result.nextIndex;
+        }
+        return `<div class="message ${m.role}">
+            <div class="role">${escapeHtml(m.role)}</div>
+            <div class="content">${content}</div></div>`;
+    }).join('');
+    
+    previewMatchCount = matchIndex;
+    updatePreviewNavigation();
+    
+    // Auto-select first match if searching
+    if (searchTerm && previewMatchCount > 0 && previewMatchIndex === -1) {
+        previewMatchIndex = 0;
+        highlightCurrentMatch();
+    }
+}
+
+function highlightTextWithIndex(text, searchTerm, startIndex) {
+    if (!searchTerm) return { text, nextIndex: startIndex };
+    const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapedSearch})`, 'gi');
+    let index = startIndex;
+    const result = text.replace(regex, (match) => {
+        return `<mark data-match-index="${index++}">${match}</mark>`;
+    });
+    return { text: result, nextIndex: index };
+}
+
+function filterPreview() {
+    const searchTerm = document.getElementById('previewSearch').value.trim();
+    updatePreviewSearchClearButton();
+    previewMatchIndex = -1;
+    renderPreview(searchTerm);
+}
+
+function updatePreviewNavigation() {
+    const navContainer = document.getElementById('previewSearchNav');
+    const countDisplay = document.getElementById('previewMatchCount');
+    const searchInput = document.getElementById('previewSearch');
+    
+    if (!navContainer || !countDisplay || !searchInput) return;
+    
+    if (previewMatchCount > 0) {
+        navContainer.classList.add('visible');
+        searchInput.classList.add('has-nav');
+        countDisplay.textContent = `${previewMatchIndex + 1}/${previewMatchCount}`;
+    } else {
+        navContainer.classList.remove('visible');
+        searchInput.classList.remove('has-nav');
+        countDisplay.textContent = '';
+    }
+}
+
+function highlightCurrentMatch() {
+    // Remove previous current highlight
+    document.querySelectorAll('#previewContent mark.current').forEach(el => {
+        el.classList.remove('current');
+    });
+    
+    // Add current highlight and scroll to it
+    const currentMark = document.querySelector(`#previewContent mark[data-match-index="${previewMatchIndex}"]`);
+    if (currentMark) {
+        currentMark.classList.add('current');
+        currentMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    
+    updatePreviewNavigation();
+}
+
+function prevMatch() {
+    if (previewMatchCount === 0) return;
+    previewMatchIndex = (previewMatchIndex - 1 + previewMatchCount) % previewMatchCount;
+    highlightCurrentMatch();
+}
+
+function nextMatch() {
+    if (previewMatchCount === 0) return;
+    previewMatchIndex = (previewMatchIndex + 1) % previewMatchCount;
+    highlightCurrentMatch();
+}
+
+function updatePreviewSearchClearButton() {
+    const searchInput = document.getElementById('previewSearch');
+    const clearBtn = document.getElementById('previewSearchClear');
+    if (!searchInput || !clearBtn) return;
+    
+    if (searchInput.value.length > 0) {
+        clearBtn.classList.add('visible');
+    } else {
+        clearBtn.classList.remove('visible');
+    }
+}
+
+function clearPreviewSearch() {
+    document.getElementById('previewSearch').value = '';
+    previewMatchIndex = -1;
+    previewMatchCount = 0;
+    updatePreviewSearchClearButton();
+    renderPreview();
+}
+
+function handlePreviewSearchKey(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        if (event.shiftKey) {
+            prevMatch();
+        } else {
+            nextMatch();
+        }
     }
 }
 
@@ -227,8 +431,69 @@ async function loadStats(sessionId) {
     }
 }
 
-function filterProjects() { loadProjects(document.getElementById('projectSearch').value); }
-function filterSessions() { if (selectedProjectId) loadSessions(selectedProjectId, document.getElementById('sessionSearch').value); }
+function filterProjects() { 
+    updateProjectSearchClearButton();
+    loadProjects(document.getElementById('projectSearch').value); 
+}
+
+function updateProjectSearchClearButton() {
+    const searchInput = document.getElementById('projectSearch');
+    const clearBtn = document.getElementById('projectSearchClear');
+    if (searchInput.value.length > 0) {
+        clearBtn.classList.add('visible');
+    } else {
+        clearBtn.classList.remove('visible');
+    }
+}
+
+function clearProjectSearch() {
+    document.getElementById('projectSearch').value = '';
+    updateProjectSearchClearButton();
+    filterProjects();
+}
+
+function filterSessions() {
+    const searchTerm = document.getElementById('sessionSearch').value.trim();
+    updateSearchClearButton();
+    if (searchTerm) {
+        // Always do global search when there's a search term
+        loadGlobalSessions(searchTerm);
+    } else if (selectedProjectId) {
+        // No search term, show sessions for selected project
+        isGlobalSearch = false;
+        loadSessions(selectedProjectId, '');
+    } else {
+        // No search term and no project selected
+        isGlobalSearch = false;
+        sessions = [];
+        renderSessions();
+    }
+}
+
+function updateSearchClearButton() {
+    const searchInput = document.getElementById('sessionSearch');
+    const clearBtn = document.getElementById('sessionSearchClear');
+    if (searchInput.value.length > 0) {
+        clearBtn.classList.add('visible');
+    } else {
+        clearBtn.classList.remove('visible');
+    }
+}
+
+function clearSessionSearch() {
+    document.getElementById('sessionSearch').value = '';
+    updateSearchClearButton();
+    filterSessions();
+}
+
+async function loadGlobalSessions(search) {
+    try {
+        const data = await api('/sessions/search?search=' + encodeURIComponent(search));
+        sessions = data.sessions;
+        isGlobalSearch = true;
+        renderSessions();
+    } catch (e) { console.error(e); }
+}
 
 function initSortable() {
     if (typeof Sortable === 'undefined') return;
@@ -416,8 +681,7 @@ async function confirmDelete() {
             selectedSessionId = null;
             await loadSessions(selectedProjectId);
         }
-        document.getElementById('previewContent').innerHTML = '<div class="empty-state"><p>Select a session to preview</p></div>';
-        document.getElementById('statsContent').innerHTML = '<div class="empty-state"><p>Select a session</p></div>';
+        clearPreviewState();
         closeDeleteModal();
         updateButtons();
         updateUndoButton();
@@ -643,8 +907,18 @@ async function startOrphanScan() {
         const summaryDiv = document.getElementById('orphanSummary');
         const hasOrphans = result.total_count > 0;
         
+        // Handle new orphan types (may be undefined in older API responses)
+        const orphanProjects = result.orphan_projects || [];
+        const mismatchedMessages = result.mismatched_messages || [];
+        const mismatchedParts = result.mismatched_parts || [];
+        const staleCacheSessions = result.stale_cache_sessions || [];
+        
         summaryDiv.innerHTML = `
             <h4>Scan Results</h4>
+            <div class="stat">
+                <span class="label">Orphaned projects (no sessions):</span>
+                <span class="value ${orphanProjects.length > 0 ? 'warning' : 'success'}">${orphanProjects.length}</span>
+            </div>
             <div class="stat">
                 <span class="label">Orphaned session_diffs:</span>
                 <span class="value ${result.session_diffs.length > 0 ? 'warning' : 'success'}">${result.session_diffs.length}</span>
@@ -661,6 +935,18 @@ async function startOrphanScan() {
                 <span class="label">Orphaned part directories:</span>
                 <span class="value ${result.parts.length > 0 ? 'warning' : 'success'}">${result.parts.length}</span>
             </div>
+            <div class="stat">
+                <span class="label">Mismatched message files:</span>
+                <span class="value ${mismatchedMessages.length > 0 ? 'warning' : 'success'}">${mismatchedMessages.length}</span>
+            </div>
+            <div class="stat">
+                <span class="label">Mismatched part files:</span>
+                <span class="value ${mismatchedParts.length > 0 ? 'warning' : 'success'}">${mismatchedParts.length}</span>
+            </div>
+            <div class="stat">
+                <span class="label">Stale Desktop cache sessions:</span>
+                <span class="value ${staleCacheSessions.length > 0 ? 'warning' : 'success'}">${staleCacheSessions.length}</span>
+            </div>
             <div class="stat" style="margin-top: 10px; padding-top: 10px; border-top: 2px solid #0f3460;">
                 <span class="label"><strong>Total orphans:</strong></span>
                 <span class="value ${hasOrphans ? 'warning' : 'success'}"><strong>${result.total_count}</strong></span>
@@ -676,6 +962,11 @@ async function startOrphanScan() {
         if (hasOrphans) {
             let detailsHtml = '<h4>Orphan Details</h4>';
             
+            // Show orphan projects first
+            orphanProjects.forEach(item => {
+                detailsHtml += `<div class="orphan-item"><span class="type" style="color:#e74c3c;">orphan project:</span> <span class="id">${escapeHtml(item.name)}</span><br><small style="color:#888;">worktree: ${escapeHtml(item.worktree)}</small></div>`;
+            });
+            
             result.session_diffs.forEach(item => {
                 detailsHtml += `<div class="orphan-item"><span class="type">session_diff:</span> <span class="id">${item.session_id}</span></div>`;
             });
@@ -687,6 +978,22 @@ async function startOrphanScan() {
             });
             result.parts.forEach(item => {
                 detailsHtml += `<div class="orphan-item"><span class="type">parts (${item.file_count} files):</span> <span class="id">${item.message_id}</span></div>`;
+            });
+            
+            // New: show mismatched message files
+            mismatchedMessages.forEach(item => {
+                detailsHtml += `<div class="orphan-item"><span class="type" style="color:#e67e22;">mismatched msg:</span> <span class="id">${item.message_id}</span><br><small style="color:#888;">${escapeHtml(item.issue)}</small></div>`;
+            });
+            
+            // New: show mismatched part files
+            mismatchedParts.forEach(item => {
+                const issueText = item.issues ? item.issues.join('; ') : 'reference mismatch';
+                detailsHtml += `<div class="orphan-item"><span class="type" style="color:#e67e22;">mismatched part:</span> <span class="id">${item.part_id}</span><br><small style="color:#888;">${escapeHtml(issueText)}</small></div>`;
+            });
+            
+            // Show stale Desktop cache sessions
+            staleCacheSessions.forEach(item => {
+                detailsHtml += `<div class="orphan-item"><span class="type" style="color:#9b59b6;">stale cache:</span> <span class="id">${item.session_id}</span><br><small style="color:#888;">Session no longer exists on disk</small></div>`;
             });
             
             detailsDiv.innerHTML = detailsHtml;
