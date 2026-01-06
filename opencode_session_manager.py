@@ -1094,7 +1094,7 @@ async def search_all_sessions(search: str = ""):
 
 
 @app.post("/api/projects/{project_id}/check-repair")
-async def check_repair_project(project_id: str):
+async def check_repair_project(project_id: str, request: Request):
     """Check and repair a project and its sessions.
     
     This will:
@@ -1108,6 +1108,16 @@ async def check_repair_project(project_id: str):
     """
     if not STORAGE_PATH:
         raise HTTPException(status_code=400, detail="Storage path not configured")
+    
+    # Parse optional git config from request body
+    git_user_name = None
+    git_user_email = None
+    try:
+        data = await request.json()
+        git_user_name = data.get("git_user_name", "").strip() if data.get("git_user_name") else None
+        git_user_email = data.get("git_user_email", "").strip() if data.get("git_user_email") else None
+    except Exception:
+        pass  # No body or invalid JSON is fine
     
     project_dir = STORAGE_PATH / "project"
     session_base_dir = STORAGE_PATH / "session"
@@ -1148,7 +1158,11 @@ async def check_repair_project(project_id: str):
         report["issues_found"].append(f"Project ID '{project_id}' is not a valid git commit hash")
         
         if worktree and Path(worktree).exists():
-            success, git_project_id, error = _ensure_git_repo(worktree)
+            success, git_project_id, error = _ensure_git_repo(worktree, git_user_name, git_user_email)
+            
+            if error == "NEEDS_GIT_CONFIG":
+                # Return special response indicating git config is needed
+                return {"needs_git_config": True, "message": "Git user configuration required", "worktree": worktree}
             
             if success and git_project_id:
                 new_project_id = git_project_id
@@ -1492,13 +1506,50 @@ def _get_git_root_commit(worktree: str) -> Optional[str]:
         return None
 
 
-def _ensure_git_repo(worktree: str) -> Tuple[bool, Optional[str], Optional[str]]:
+def _get_global_git_config() -> Tuple[Optional[str], Optional[str]]:
+    """Get global git user.name and user.email.
+    
+    Returns:
+        Tuple of (user_name, user_email) - either may be None if not configured
+    """
+    user_name = None
+    user_email = None
+    
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "user.name"],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            user_name = result.stdout.strip()
+    except Exception:
+        pass
+    
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "user.email"],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            user_email = result.stdout.strip()
+    except Exception:
+        pass
+    
+    return user_name, user_email
+
+
+def _ensure_git_repo(worktree: str, git_user_name: Optional[str] = None, git_user_email: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[str]]:
     """Ensure a directory is a git repository with at least one commit.
     
     If not a git repo, initializes one and creates an initial commit.
+    If git user config is needed and not available globally, git_user_name and git_user_email must be provided.
     
     Returns:
         Tuple of (success, project_id, error_message)
+        Special error messages:
+        - "NEEDS_GIT_CONFIG" - Global git config not found, need user to provide name/email
     """
     if not worktree or not Path(worktree).exists():
         return False, None, "Worktree path does not exist"
@@ -1506,9 +1557,25 @@ def _ensure_git_repo(worktree: str) -> Tuple[bool, Optional[str], Optional[str]]
     git_dir = Path(worktree) / ".git"
     
     try:
-        # Check if already a git repo
+        # Check if already a git repo with commits
+        if git_dir.exists():
+            project_id = _get_git_root_commit(worktree)
+            if project_id:
+                # Already have a repo with commits, we're done
+                return True, project_id, None
+        
+        # We need to either init the repo or create initial commit
+        # Check if we have git user config available
+        global_name, global_email = _get_global_git_config()
+        has_global_config = bool(global_name and global_email)
+        has_provided_config = bool(git_user_name and git_user_email)
+        
+        if not has_global_config and not has_provided_config:
+            # Need user to provide git config
+            return False, None, "NEEDS_GIT_CONFIG"
+        
+        # Initialize git repository if needed
         if not git_dir.exists():
-            # Initialize git repository
             result = subprocess.run(
                 ["git", "init"],
                 cwd=worktree,
@@ -1523,17 +1590,18 @@ def _ensure_git_repo(worktree: str) -> Tuple[bool, Optional[str], Optional[str]]
         
         if not project_id:
             # No commits yet - create an initial commit
-            # First, configure git user if not set (required for commit)
-            subprocess.run(
-                ["git", "config", "user.email", "opencode@local"],
-                cwd=worktree,
-                capture_output=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "OpenCode Session Manager"],
-                cwd=worktree,
-                capture_output=True
-            )
+            # Set local git config if no global config (use provided values)
+            if not has_global_config and git_user_name and git_user_email:
+                subprocess.run(
+                    ["git", "config", "user.email", str(git_user_email)],
+                    cwd=worktree,
+                    capture_output=True
+                )
+                subprocess.run(
+                    ["git", "config", "user.name", str(git_user_name)],
+                    cwd=worktree,
+                    capture_output=True
+                )
             
             # Create .gitkeep if directory is empty (git won't commit empty dirs)
             gitkeep = Path(worktree) / ".gitkeep"
@@ -1575,6 +1643,8 @@ async def create_project(request: Request):
     data = await request.json()
     name = data.get("name", "").strip()
     worktree = data.get("worktree", "").strip()
+    git_user_name = data.get("git_user_name", "").strip() if data.get("git_user_name") else None
+    git_user_email = data.get("git_user_email", "").strip() if data.get("git_user_email") else None
     
     if not name:
         raise HTTPException(status_code=400, detail="Project name is required")
@@ -1589,8 +1659,11 @@ async def create_project(request: Request):
     project_dir.mkdir(parents=True, exist_ok=True)
     
     # Ensure directory is a git repo (initialize if needed) and get project ID
-    success, project_id, error = _ensure_git_repo(worktree)
+    success, project_id, error = _ensure_git_repo(worktree, git_user_name, git_user_email)
     if not success or not project_id:
+        if error == "NEEDS_GIT_CONFIG":
+            # Return special response indicating git config is needed
+            return {"needs_git_config": True, "message": "Git user configuration required"}
         raise HTTPException(status_code=400, detail=error or "Failed to initialize git repository")
     
     # Check if project already exists
@@ -1637,6 +1710,17 @@ async def create_project(request: Request):
     })
     
     return {"success": True, "project_id": project_id, "name": name}
+
+
+@app.get("/api/git-config")
+async def get_git_config():
+    """Check if global git config (user.name and user.email) is available."""
+    user_name, user_email = _get_global_git_config()
+    return {
+        "has_global_config": bool(user_name and user_email),
+        "user_name": user_name,
+        "user_email": user_email
+    }
 
 
 def _ensure_project_fields(project_data: dict) -> bool:
@@ -1691,6 +1775,9 @@ async def update_project(project_id: str, request: Request):
         raise HTTPException(status_code=400, detail="Storage path not configured")
     
     data = await request.json()
+    git_user_name = data.get("git_user_name", "").strip() if data.get("git_user_name") else None
+    git_user_email = data.get("git_user_email", "").strip() if data.get("git_user_email") else None
+    
     project_file = STORAGE_PATH / "project" / f"{project_id}.json"
     if not project_file.exists():
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1725,7 +1812,10 @@ async def update_project(project_id: str, request: Request):
             # Check if git already exists before we potentially create it
             git_already_exists = (Path(new_worktree) / ".git").exists()
             
-            success, git_project_id, error = _ensure_git_repo(new_worktree)
+            success, git_project_id, error = _ensure_git_repo(new_worktree, git_user_name, git_user_email)
+            if error == "NEEDS_GIT_CONFIG":
+                # Return special response indicating git config is needed
+                return {"needs_git_config": True, "message": "Git user configuration required", "worktree": new_worktree}
             if success:
                 project_data["vcs"] = "git"
                 

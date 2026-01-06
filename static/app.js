@@ -12,6 +12,9 @@ let previewMessages = [];
 let previewMatchIndex = -1;
 let previewMatchCount = 0;
 
+// Git config state for pending operations
+let pendingGitConfigOperation = null;
+
 document.addEventListener('DOMContentLoaded', async () => {
     await loadTheme();
     await checkStoragePath();
@@ -568,7 +571,7 @@ async function fixAllProjects() {
     }
 }
 
-async function checkRepairProject() {
+async function checkRepairProject(gitUserName = null, gitUserEmail = null) {
     const projectId = multiSelectedProjects.size === 1 ? [...multiSelectedProjects][0] : selectedProjectId;
     if (!projectId) {
         alert('Please select a project first.');
@@ -579,7 +582,26 @@ async function checkRepairProject() {
     const projectName = project?.name || projectId;
     
     try {
-        const result = await api(`/projects/${projectId}/check-repair`, { method: 'POST' });
+        const payload = {};
+        if (gitUserName && gitUserEmail) {
+            payload.git_user_name = gitUserName;
+            payload.git_user_email = gitUserEmail;
+        }
+        
+        const result = await api(`/projects/${projectId}/check-repair`, { 
+            method: 'POST',
+            body: Object.keys(payload).length > 0 ? JSON.stringify(payload) : undefined
+        });
+        
+        // Check if git config is needed
+        if (result.needs_git_config) {
+            pendingGitConfigOperation = {
+                type: 'repair_project',
+                projectId: projectId
+            };
+            showGitConfigModal();
+            return;
+        }
         
         let message = `Check & Repair Report for "${projectName}"\n`;
         message += '='.repeat(40) + '\n\n';
@@ -756,17 +778,35 @@ function closeEditModal() {
     document.getElementById('worktreeField').style.display = 'none';
 }
 
-async function confirmEdit() {
+async function confirmEdit(gitUserName = null, gitUserEmail = null) {
     const input = document.getElementById('editInput');
     const newName = input.value.trim();
     if (!newName) { alert('Name cannot be empty'); return; }
     try {
         if (input.dataset.type === 'project') {
             const worktree = document.getElementById('editWorktree').value.trim();
+            const payload = { new_name: newName, worktree: worktree };
+            if (gitUserName && gitUserEmail) {
+                payload.git_user_name = gitUserName;
+                payload.git_user_email = gitUserEmail;
+            }
+            
             const result = await api('/projects/' + input.dataset.id + '/update', { 
                 method: 'PUT', 
-                body: JSON.stringify({ new_name: newName, worktree: worktree }) 
+                body: JSON.stringify(payload) 
             });
+            
+            // Check if git config is needed
+            if (result.needs_git_config) {
+                pendingGitConfigOperation = {
+                    type: 'update_project',
+                    projectId: input.dataset.id,
+                    newName: newName,
+                    worktree: worktree
+                };
+                showGitConfigModal();
+                return;
+            }
             
             // Handle migration to new project ID
             if (result.migrated && result.new_project_id) {
@@ -833,7 +873,7 @@ async function browseNewProjectWorktree() {
     }
 }
 
-async function confirmAddProject() {
+async function confirmAddProject(gitUserName = null, gitUserEmail = null) {
     const name = document.getElementById('newProjectName').value.trim();
     const worktree = document.getElementById('newProjectWorktree').value.trim();
     
@@ -843,10 +883,28 @@ async function confirmAddProject() {
     }
     
     try {
+        const payload = { name, worktree };
+        if (gitUserName && gitUserEmail) {
+            payload.git_user_name = gitUserName;
+            payload.git_user_email = gitUserEmail;
+        }
+        
         const result = await api('/projects', {
             method: 'POST',
-            body: JSON.stringify({ name, worktree })
+            body: JSON.stringify(payload)
         });
+        
+        // Check if git config is needed
+        if (result.needs_git_config) {
+            pendingGitConfigOperation = {
+                type: 'create_project',
+                name: name,
+                worktree: worktree
+            };
+            showGitConfigModal();
+            return;
+        }
+        
         closeAddProjectModal();
         await loadProjects();
         updateUndoButton();
@@ -1080,3 +1138,69 @@ async function cleanupOrphans() {
         cleanupBtn.textContent = 'Delete Orphans';
     }
 }
+
+// =============================================================================
+// Git Config Modal Functions
+// =============================================================================
+
+function showGitConfigModal() {
+    document.getElementById('gitConfigName').value = '';
+    document.getElementById('gitConfigEmail').value = '';
+    document.getElementById('gitConfigModal').classList.add('active');
+    document.getElementById('gitConfigName').focus();
+}
+
+function closeGitConfigModal() {
+    document.getElementById('gitConfigModal').classList.remove('active');
+    pendingGitConfigOperation = null;
+}
+
+function cancelGitConfig() {
+    closeGitConfigModal();
+}
+
+async function confirmGitConfig() {
+    const name = document.getElementById('gitConfigName').value.trim();
+    const email = document.getElementById('gitConfigEmail').value.trim();
+    
+    if (!name) {
+        alert('Please enter your name');
+        return;
+    }
+    if (!email) {
+        alert('Please enter your email');
+        return;
+    }
+    
+    // Simple email validation
+    if (!email.includes('@') || !email.includes('.')) {
+        alert('Please enter a valid email address');
+        return;
+    }
+    
+    const operation = pendingGitConfigOperation;
+    closeGitConfigModal();
+    
+    if (!operation) return;
+    
+    // Retry the original operation with git config
+    switch (operation.type) {
+        case 'create_project':
+            await confirmAddProject(name, email);
+            break;
+        case 'update_project':
+            await confirmEdit(name, email);
+            break;
+        case 'repair_project':
+            await checkRepairProject(name, email);
+            break;
+    }
+}
+
+// Add keyboard handler for git config modal
+document.addEventListener('keydown', (e) => {
+    if (document.getElementById('gitConfigModal').classList.contains('active')) {
+        if (e.key === 'Escape') cancelGitConfig();
+        if (e.key === 'Enter') confirmGitConfig();
+    }
+});

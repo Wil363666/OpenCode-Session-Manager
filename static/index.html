@@ -148,6 +148,25 @@
             </div>
         </div>
     </div>
+    <div class="modal-overlay" id="gitConfigModal">
+        <div class="modal">
+            <h3>Git Configuration Required</h3>
+            <p class="warning-text" style="margin-bottom:16px;">This folder needs to be initialized as a Git repository, but no global Git configuration was found. Please provide your Git user information:</p>
+            <div class="edit-field">
+                <label>User Name</label>
+                <input type="text" id="gitConfigName" placeholder="Your Name">
+            </div>
+            <div class="edit-field">
+                <label>User Email</label>
+                <input type="email" id="gitConfigEmail" placeholder="your.email@example.com">
+            </div>
+            <p class="info-text" style="font-size:12px;color:var(--text-secondary);margin-top:8px;">This will be saved as local Git config for this repository only.</p>
+            <div class="modal-buttons">
+                <button class="btn btn-standard" onclick="cancelGitConfig()">Cancel</button>
+                <button class="btn btn-create" onclick="confirmGitConfig()">Continue</button>
+            </div>
+        </div>
+    </div>
     <div class="modal-overlay" id="scanOrphansModal">
         <div class="modal">
             <h3 id="scanOrphansTitle">Scan for Orphaned Data</h3>
