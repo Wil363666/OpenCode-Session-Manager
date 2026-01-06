@@ -92,7 +92,7 @@ def load_config() -> dict:
         if content.startswith("{"):
             try:
                 data = json.loads(content)
-                if "storage_path" in data:
+                if "storage_path" in data and data["storage_path"]:
                     path_str = os.path.expanduser(data["storage_path"])
                     path_str = os.path.expandvars(path_str)
                     path = Path(path_str)
