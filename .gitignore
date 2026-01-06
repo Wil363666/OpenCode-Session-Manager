@@ -1,11 +1,21 @@
 # Virtual environment
 venv/
+.venv/
+
+# UV lock file and cache
+uv.lock
+.uv/
 
 # Python cache
 __pycache__/
 *.py[cod]
 *$py.class
 *.pyo
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
 
 # Config file (contains user-specific paths)
 static/config.txt
