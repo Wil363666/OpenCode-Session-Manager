@@ -92,7 +92,7 @@ def load_config() -> dict:
         if content.startswith("{"):
             try:
                 data = json.loads(content)
-                if "storage_path" in data:
+                if "storage_path" in data and data["storage_path"]:
                     path_str = os.path.expanduser(data["storage_path"])
                     path_str = os.path.expandvars(path_str)
                     path = Path(path_str)
@@ -964,6 +964,7 @@ async def get_sessions(project_id: str, search: str = ""):
                     "created": data.get("time", {}).get("created"),
                     "updated": data.get("time", {}).get("updated"),
                     "size": file_size,
+                    "parent_id": data.get("parentID"),
                 }
             )
         except (json.JSONDecodeError, IOError):
@@ -1047,6 +1048,7 @@ async def search_all_sessions(search: str = ""):
                         "size": file_size,
                         "project_id": project_id,
                         "project_name": project_info["name"],
+                        "parent_id": data.get("parentID"),
                     }
                 )
             except (json.JSONDecodeError, IOError):
@@ -1437,9 +1439,11 @@ async def get_session_stats(session_id: str):
         "updated": None,
         "has_diffs": False,
         "has_todos": False,
+        "directory": None,
+        "project_id": None,
     }
 
-    session_file, _ = _find_session_file(session_id)
+    session_file, project_id = _find_session_file(session_id)
 
     if session_file:
         try:
@@ -1447,6 +1451,8 @@ async def get_session_stats(session_id: str):
                 data = json.load(f)
             stats["created"] = data.get("time", {}).get("created")
             stats["updated"] = data.get("time", {}).get("updated")
+            stats["directory"] = data.get("directory")
+            stats["project_id"] = data.get("projectID", project_id)
             stats["total_size"] += session_file.stat().st_size
         except (json.JSONDecodeError, IOError):
             pass

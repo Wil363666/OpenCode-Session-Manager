@@ -73,14 +73,14 @@ body {
 }
 .search-wrapper input {
     flex: 1;
-    padding-right: 28px;
+    padding-right: 64px;
 }
 .search-wrapper input.has-nav {
     padding-right: 110px;
 }
 .search-clear {
     position: absolute;
-    right: 6px;
+    right: 38px;
     background: none;
     border: none;
     color: var(--text-muted);
@@ -99,6 +99,37 @@ body {
 .search-wrapper input:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+/* Toggle view button */
+.btn-toggle-view {
+    position: absolute;
+    right: 6px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+.btn-toggle-view svg {
+    width: 16px;
+    height: 16px;
+}
+.btn-toggle-view:hover {
+    background: var(--bg-hover);
+    color: var(--accent-primary);
+}
+.btn-toggle-view.active {
+    background: var(--accent-primary);
+    color: #fff;
 }
 
 /* Search navigation */
@@ -161,6 +192,31 @@ body {
 .list-item .badge.project-badge {
     background: var(--color-badge-project); color: #fff; font-size: 0.7rem;
     margin-left: 8px; margin-top: 0; padding: 2px 6px;
+}
+.list-item .badge.child-count {
+    background: var(--accent-secondary); color: #fff; font-size: 0.7rem;
+    margin-left: 4px; margin-top: 0; padding: 2px 6px; cursor: help;
+}
+.list-item .badge.subagent-badge {
+    background: var(--accent-secondary); color: #fff; font-size: 0.7rem;
+    margin-left: 8px; margin-top: 0; padding: 2px 6px; opacity: 0.9;
+}
+.list-item .subagent-indicator {
+    color: var(--accent-secondary); font-weight: bold;
+    margin-right: 4px; opacity: 0.7;
+}
+.list-item .expand-icon {
+    display: inline-block;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    cursor: pointer;
+    margin-right: 6px;
+    user-select: none;
+    width: 12px;
+    text-align: center;
+}
+.list-item .expand-icon:hover {
+    color: var(--accent-primary);
 }
 
 /* Session Items (Draggable) */

@@ -11,6 +11,8 @@ let isGlobalSearch = false;
 let previewMessages = [];
 let previewMatchIndex = -1;
 let previewMatchCount = 0;
+let expandedSessions = new Set();
+let isNestedView = true;
 
 // Git config state for pending operations
 let pendingGitConfigOperation = null;
@@ -19,6 +21,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadTheme();
     await checkStoragePath();
     await updateUndoButton();
+    
+    const toggleBtn = document.getElementById('toggleNestedView');
+    if (toggleBtn) {
+        if (isNestedView) {
+            toggleBtn.classList.add('active');
+            toggleBtn.title = 'Switch to flat view';
+        } else {
+            toggleBtn.title = 'Switch to nested view';
+        }
+    }
 });
 
 async function loadTheme() {
@@ -204,6 +216,66 @@ async function loadSessions(projectId, search = '') {
     } catch (e) { console.error(e); }
 }
 
+function buildSessionTree(sessions) {
+    const sessionMap = new Map();
+    const rootSessions = [];
+    
+    sessions.forEach(s => {
+        sessionMap.set(s.id, { ...s, children: [] });
+    });
+    
+    sessions.forEach(s => {
+        const session = sessionMap.get(s.id);
+        if (s.parent_id && sessionMap.has(s.parent_id)) {
+            sessionMap.get(s.parent_id).children.push(session);
+        } else {
+            rootSessions.push(session);
+        }
+    });
+    
+    return rootSessions;
+}
+
+function toggleSessionExpand(sessionId, event) {
+    event.stopPropagation();
+    if (expandedSessions.has(sessionId)) {
+        expandedSessions.delete(sessionId);
+    } else {
+        expandedSessions.add(sessionId);
+    }
+    renderSessions();
+}
+
+function renderSessionItem(session, projectId, depth = 0) {
+    const selected = session.id === selectedSessionId ? 'selected' : '';
+    const multi = multiSelectedSessions.has(session.id) ? 'multi-selected' : '';
+    const indent = depth > 0 ? `margin-left: ${depth * 20}px;` : '';
+    const projectBadge = isGlobalSearch && session.project_name 
+        ? `<span class="badge project-badge">${escapeHtml(session.project_name)}</span>` 
+        : '';
+    const subagentIndicator = session.parent_id ? '<span class="subagent-indicator" title="Subagent session">↳</span> ' : '';
+    
+    const hasChildren = session.children && session.children.length > 0;
+    const isExpanded = expandedSessions.has(session.id);
+    const expandIcon = hasChildren 
+        ? `<span class="expand-icon ${isExpanded ? 'expanded' : ''}" data-session-id="${escapeHtml(session.id)}" data-action="toggle-expand">${isExpanded ? '▼' : '▶'}</span> `
+        : '';
+    const childCount = hasChildren 
+        ? ` <span class="badge child-count" title="${session.children.length} subagent session(s)">${session.children.length}</span>` 
+        : '';
+    
+    let html = `<div class="list-item session-item ${selected} ${multi}" data-id="${escapeHtml(session.id)}" data-project-id="${escapeHtml(projectId)}" draggable="true" style="${indent}">
+        <div class="title">${expandIcon}${subagentIndicator}${escapeHtml(session.title || session.id)}${projectBadge}${childCount}</div>
+        <div class="subtitle">${formatDate(session.updated || session.created)}</div></div>`;
+    
+    if (hasChildren && isExpanded) {
+        session.children.sort((a, b) => (a.created || 0) - (b.created || 0));
+        html += session.children.map(child => renderSessionItem(child, child.project_id || projectId, depth + 1)).join('');
+    }
+    
+    return html;
+}
+
 function renderSessions() {
     const container = document.getElementById('sessionList');
     const searchTerm = document.getElementById('sessionSearch').value.trim();
@@ -216,18 +288,65 @@ function renderSessions() {
         container.innerHTML = '<div class="empty-state"><p>No sessions found</p></div>';
         return;
     }
-    container.innerHTML = sessions.map(s => {
-        const selected = s.id === selectedSessionId ? 'selected' : '';
-        const multi = multiSelectedSessions.has(s.id) ? 'multi-selected' : '';
-        const projectId = s.project_id || selectedProjectId;
-        const projectBadge = isGlobalSearch && s.project_name 
-            ? `<span class="badge project-badge">${escapeHtml(s.project_name)}</span>` 
-            : '';
-        return `<div class="list-item session-item ${selected} ${multi}" data-id="${s.id}" data-project-id="${projectId}" draggable="true" onclick="selectSession('${s.id}', event, '${projectId}')">
-            <div class="title">${escapeHtml(s.title || s.id)}${projectBadge}</div>
-            <div class="subtitle">${formatDate(s.updated || s.created)}</div></div>`;
-    }).join('');
+    
+    if (isNestedView) {
+        const tree = buildSessionTree(sessions);
+        const projectId = selectedProjectId;
+        container.innerHTML = tree.map(session => renderSessionItem(session, session.project_id || projectId)).join('');
+    } else {
+        container.innerHTML = sessions.map(s => {
+            const selected = s.id === selectedSessionId ? 'selected' : '';
+            const multi = multiSelectedSessions.has(s.id) ? 'multi-selected' : '';
+            const projectId = s.project_id || selectedProjectId;
+            const projectBadge = isGlobalSearch && s.project_name 
+                ? `<span class="badge project-badge">${escapeHtml(s.project_name)}</span>` 
+                : '';
+            const subagentBadge = s.parent_id ? '<span class="badge subagent-badge" title="Subagent session">Subagent</span>' : '';
+            return `<div class="list-item session-item ${selected} ${multi}" data-id="${escapeHtml(s.id)}" data-project-id="${escapeHtml(projectId)}" draggable="true">
+                <div class="title">${escapeHtml(s.title || s.id)}${projectBadge}${subagentBadge}</div>
+                <div class="subtitle">${formatDate(s.updated || s.created)}</div></div>`;
+        }).join('');
+    }
+    
+    attachSessionListeners();
     initSortable();
+}
+
+function attachSessionListeners() {
+    const container = document.getElementById('sessionList');
+    container.querySelectorAll('.session-item').forEach(item => {
+        item.addEventListener('click', (event) => {
+            if (event.target.dataset.action === 'toggle-expand') {
+                const sessionId = event.target.dataset.sessionId;
+                toggleSessionExpand(sessionId, event);
+            } else {
+                const sessionId = item.dataset.id;
+                const projectId = item.dataset.projectId;
+                selectSession(sessionId, event, projectId);
+            }
+        });
+    });
+    
+    container.querySelectorAll('[data-action="toggle-expand"]').forEach(icon => {
+        icon.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const sessionId = event.target.dataset.sessionId;
+            toggleSessionExpand(sessionId, event);
+        });
+    });
+}
+
+function toggleNestedView() {
+    isNestedView = !isNestedView;
+    const btn = document.getElementById('toggleNestedView');
+    if (isNestedView) {
+        btn.classList.add('active');
+        btn.title = 'Switch to flat view';
+    } else {
+        btn.classList.remove('active');
+        btn.title = 'Switch to nested view';
+    }
+    renderSessions();
 }
 
 async function selectSession(sessionId, event, projectId = null) {
@@ -421,6 +540,18 @@ async function loadStats(sessionId) {
     const container = document.getElementById('statsContent');
     try {
         const data = await api('/sessions/' + sessionId + '/stats');
+        
+        let continueButton = '';
+        if (data.directory) {
+            continueButton = `
+                <div class="stat-item" style="grid-column: 1 / -1; margin-top: 8px;">
+                    <button class="btn btn-create btn-copy-continue" data-session-id="${escapeHtml(data.session_id)}" data-directory="${escapeHtml(data.directory)}"
+                            style="width: 100%; padding: 10px; font-size: 0.9rem;">
+                        Copy Continue Command
+                    </button>
+                </div>`;
+        }
+        
         container.innerHTML = `
             <div class="stat-item"><div class="label">Session ID</div><div class="value" style="font-size:0.8rem;word-break:break-all;">${escapeHtml(data.session_id)}</div></div>
             <div class="stat-item"><div class="label">Messages</div><div class="value">${data.message_count}</div></div>
@@ -428,7 +559,17 @@ async function loadStats(sessionId) {
             <div class="stat-item"><div class="label">Created</div><div class="value">${formatDate(data.created)}</div></div>
             <div class="stat-item"><div class="label">Last Modified</div><div class="value">${formatDate(data.updated)}</div></div>
             <div class="stat-item"><div class="label">Has Diffs</div><div class="value">${data.has_diffs ? 'Yes' : 'No'}</div></div>
-            <div class="stat-item"><div class="label">Has Todos</div><div class="value">${data.has_todos ? 'Yes' : 'No'}</div></div>`;
+            <div class="stat-item"><div class="label">Has Todos</div><div class="value">${data.has_todos ? 'Yes' : 'No'}</div></div>
+            ${continueButton}`;
+        
+        const copyBtn = container.querySelector('.btn-copy-continue');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', (event) => {
+                const sessionId = copyBtn.dataset.sessionId;
+                const directory = copyBtn.dataset.directory;
+                copyContinueCommand(event, sessionId, directory);
+            });
+        }
     } catch (e) {
         container.innerHTML = '<div class="empty-state"><p>Error: ' + escapeHtml(e.message) + '</p></div>';
     }
@@ -840,6 +981,17 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+function escapeJs(text) {
+    if (!text) return '';
+    return String(text)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t');
+}
+
 function formatDate(timestamp) {
     if (!timestamp) return 'Unknown';
     return new Date(timestamp).toLocaleString();
@@ -849,6 +1001,58 @@ function formatSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function sanitizeDirectoryForShell(directory, isWindows) {
+    if (typeof directory !== 'string') {
+        directory = String(directory);
+    }
+    directory = directory.replace(/[\r\n]/g, '');
+    
+    if (isWindows) {
+        if (directory.includes('"')) {
+            throw new Error('Directory path cannot contain double quotes on Windows.');
+        }
+        return directory;
+    } else {
+        return directory.replace(/([\"$`\\])/g, '\\$1');
+    }
+}
+
+function copyContinueCommand(evt, sessionId, directory) {
+    const isWindows = navigator.platform.toLowerCase().includes('win');
+    
+    let command;
+    try {
+        const safeDirectory = sanitizeDirectoryForShell(directory, isWindows);
+        const safeSessionId = String(sessionId).replace(/[\r\n]/g, '');
+        
+        if (isWindows) {
+            const cdCommand = `cd /d "${safeDirectory}"`;
+            const opencodeCommand = `opencode --session ${safeSessionId}`;
+            command = `${cdCommand} && ${opencodeCommand}`;
+        } else {
+            const cdCommand = `cd "${safeDirectory}"`;
+            const opencodeCommand = `opencode --session ${safeSessionId}`;
+            command = `${cdCommand} && ${opencodeCommand}`;
+        }
+    } catch (err) {
+        alert('Cannot create continue command: ' + err.message);
+        return;
+    }
+    
+    navigator.clipboard.writeText(command).then(() => {
+        const btn = evt.target;
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.style.backgroundColor = 'var(--success)';
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.backgroundColor = '';
+        }, 2000);
+    }).catch(err => {
+        alert('Failed to copy command: ' + err.message);
+    });
 }
 
 function showAddProjectModal() {
