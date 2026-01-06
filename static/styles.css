@@ -73,14 +73,14 @@ body {
 }
 .search-wrapper input {
     flex: 1;
-    padding-right: 28px;
+    padding-right: 64px;
 }
 .search-wrapper input.has-nav {
     padding-right: 110px;
 }
 .search-clear {
     position: absolute;
-    right: 6px;
+    right: 38px;
     background: none;
     border: none;
     color: var(--text-muted);
@@ -104,7 +104,7 @@ body {
 /* Toggle view button */
 .btn-toggle-view {
     position: absolute;
-    right: 32px;
+    right: 6px;
     background: none;
     border: none;
     color: var(--text-muted);
