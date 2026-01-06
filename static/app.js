@@ -12,6 +12,7 @@ let previewMessages = [];
 let previewMatchIndex = -1;
 let previewMatchCount = 0;
 let expandedSessions = new Set();
+let isNestedView = true;
 
 // Git config state for pending operations
 let pendingGitConfigOperation = null;
@@ -20,6 +21,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadTheme();
     await checkStoragePath();
     await updateUndoButton();
+    
+    const toggleBtn = document.getElementById('toggleNestedView');
+    if (toggleBtn && isNestedView) {
+        toggleBtn.classList.add('active');
+    }
 });
 
 async function loadTheme() {
@@ -278,11 +284,39 @@ function renderSessions() {
         return;
     }
     
-    const tree = buildSessionTree(sessions);
-    const projectId = selectedProjectId;
+    if (isNestedView) {
+        const tree = buildSessionTree(sessions);
+        const projectId = selectedProjectId;
+        container.innerHTML = tree.map(session => renderSessionItem(session, session.project_id || projectId)).join('');
+    } else {
+        container.innerHTML = sessions.map(s => {
+            const selected = s.id === selectedSessionId ? 'selected' : '';
+            const multi = multiSelectedSessions.has(s.id) ? 'multi-selected' : '';
+            const projectId = s.project_id || selectedProjectId;
+            const projectBadge = isGlobalSearch && s.project_name 
+                ? `<span class="badge project-badge">${escapeHtml(s.project_name)}</span>` 
+                : '';
+            const subagentBadge = s.parent_id ? '<span class="badge subagent-badge" title="Subagent session">Subagent</span>' : '';
+            return `<div class="list-item session-item ${selected} ${multi}" data-id="${s.id}" data-project-id="${projectId}" draggable="true" onclick="selectSession('${s.id}', event, '${projectId}')">
+                <div class="title">${escapeHtml(s.title || s.id)}${projectBadge}${subagentBadge}</div>
+                <div class="subtitle">${formatDate(s.updated || s.created)}</div></div>`;
+        }).join('');
+    }
     
-    container.innerHTML = tree.map(session => renderSessionItem(session, session.project_id || projectId)).join('');
     initSortable();
+}
+
+function toggleNestedView() {
+    isNestedView = !isNestedView;
+    const btn = document.getElementById('toggleNestedView');
+    if (isNestedView) {
+        btn.classList.add('active');
+        btn.title = 'Switch to flat view';
+    } else {
+        btn.classList.remove('active');
+        btn.title = 'Switch to nested view';
+    }
+    renderSessions();
 }
 
 async function selectSession(sessionId, event, projectId = null) {
