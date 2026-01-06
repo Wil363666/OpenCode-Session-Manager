@@ -31,15 +31,15 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/opencode-session-manager"
-Repository = "https://github.com/yourusername/opencode-session-manager"
-Issues = "https://github.com/yourusername/opencode-session-manager/issues"
+Homepage = "https://github.com/Wil363666/OpenCode-Session-Manager"
+Repository = "https://github.com/Wil363666/OpenCode-Session-Manager"
+Issues = "https://github.com/Wil363666/OpenCode-Session-Manager/issues"
 
 [project.scripts]
 opencode-session-manager = "opencode_session_manager:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["."]
+packages = []
 include = [
     "opencode_session_manager.py",
     "static/**/*",

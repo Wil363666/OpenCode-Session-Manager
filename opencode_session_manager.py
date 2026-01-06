@@ -13,14 +13,13 @@ import subprocess
 import sys
 import threading
 import time
-import uuid
 import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response, FileResponse
+from fastapi.responses import HTMLResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
@@ -113,6 +112,7 @@ def load_config() -> dict:
             config["storage_path"] = path
 
     except (IOError, OSError):
+        # If the config file cannot be read, silently fall back to the default config
         pass
 
     return config
@@ -1114,7 +1114,6 @@ async def check_repair_project(project_id: str, request: Request):
         report["issues_found"].append("This is the global project - skipping")
         return report
 
-    project_name = project_data.get("name", project_id)
     worktree = project_data.get("worktree", "")
     old_project_id = project_id
     new_project_id = project_id
@@ -1891,6 +1890,7 @@ async def update_project(project_id: str, request: Request):
                         with open(new_project_file, "w", encoding="utf-8") as f:
                             json.dump(existing_project_data, f, indent=2)
                 except (json.JSONDecodeError, IOError):
+                    # If we can't read/update the existing project file, skip the merge and continue with migration
                     pass
             else:
                 # Create new project file
@@ -2708,6 +2708,7 @@ async def scan_orphans():
                                 if session_id not in valid_sessions:
                                     stale_sessions_found.add(session_id)
                     except (json.JSONDecodeError, TypeError):
+                        # Skip malformed notification data and continue scanning
                         pass
                 # Check other keys that might contain session references
                 elif ".v1" in key or ".v2" in key:
@@ -2841,10 +2842,11 @@ async def cleanup_orphans():
                                 and internal_session_id != session_id
                             ):
                                 size = msg_file.stat().st_size
-                                msg_file.unlink()
-                                deleted["mismatched_messages"] += 1
-                                deleted["total_size_freed"] += size
+                            msg_file.unlink()
+                            deleted["mismatched_messages"] += 1
+                            deleted["total_size_freed"] += size
                         except (json.JSONDecodeError, IOError):
+                            # Skip corrupted message files and continue cleanup
                             pass
                         except Exception as e:
                             errors.append({"path": str(msg_file), "error": str(e)})
@@ -2899,10 +2901,11 @@ async def cleanup_orphans():
 
                             if has_issues:
                                 size = part_file.stat().st_size
-                                part_file.unlink()
-                                deleted["mismatched_parts"] += 1
-                                deleted["total_size_freed"] += size
+                            part_file.unlink()
+                            deleted["mismatched_parts"] += 1
+                            deleted["total_size_freed"] += size
                         except (json.JSONDecodeError, IOError):
+                            # Skip corrupted part files and continue cleanup
                             pass
                         except Exception as e:
                             errors.append({"path": str(part_file), "error": str(e)})

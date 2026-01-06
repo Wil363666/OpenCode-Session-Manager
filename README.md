@@ -41,7 +41,7 @@ A web-based GUI tool for managing OpenCode sessions and projects. Browse, search
 The fastest way to run the application:
 
 ```bash
-uvx --from git+https://github.com/yourusername/opencode-session-manager opencode-session-manager
+uvx --from git+https://github.com/Wil363666/OpenCode-Session-Manager opencode-session-manager
 ```
 
 This single command downloads, installs, and runs the application instantly!
@@ -89,7 +89,7 @@ pip install uv
 Run directly without installation using `uvx`:
 
 ```bash
-uvx --from git+https://github.com/yourusername/opencode-session-manager opencode-session-manager
+uvx --from git+https://github.com/Wil363666/OpenCode-Session-Manager opencode-session-manager
 ```
 
 This will:
@@ -102,7 +102,7 @@ This will:
 Install globally as a command-line tool:
 
 ```bash
-uv tool install git+https://github.com/yourusername/opencode-session-manager
+uv tool install git+https://github.com/Wil363666/OpenCode-Session-Manager
 ```
 
 Then run anytime with:
@@ -128,7 +128,7 @@ uv tool uninstall opencode-session-manager
 Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/opencode-session-manager.git
+git clone https://github.com/Wil363666/OpenCode-Session-Manager.git
 cd opencode-session-manager
 ```
 
@@ -192,7 +192,7 @@ Settings are stored in `static/config.txt`:
 Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/opencode-session-manager.git
+git clone https://github.com/Wil363666/OpenCode-Session-Manager.git
 cd opencode-session-manager
 ```
 
