@@ -1116,6 +1116,7 @@ async def check_repair_project(project_id: str, request: Request):
         report["issues_found"].append("This is the global project - skipping")
         return report
 
+    project_name = project_data.get("name", project_id)
     worktree = project_data.get("worktree", "")
     old_project_id = project_id
     new_project_id = project_id
@@ -2848,9 +2849,9 @@ async def cleanup_orphans():
                                 and internal_session_id != session_id
                             ):
                                 size = msg_file.stat().st_size
-                            msg_file.unlink()
-                            deleted["mismatched_messages"] += 1
-                            deleted["total_size_freed"] += size
+                                msg_file.unlink()
+                                deleted["mismatched_messages"] += 1
+                                deleted["total_size_freed"] += size
                         except (json.JSONDecodeError, IOError):
                             # Skip corrupted message files and continue cleanup
                             pass
@@ -2907,9 +2908,9 @@ async def cleanup_orphans():
 
                             if has_issues:
                                 size = part_file.stat().st_size
-                            part_file.unlink()
-                            deleted["mismatched_parts"] += 1
-                            deleted["total_size_freed"] += size
+                                part_file.unlink()
+                                deleted["mismatched_parts"] += 1
+                                deleted["total_size_freed"] += size
                         except (json.JSONDecodeError, IOError):
                             # Skip corrupted part files and continue cleanup
                             pass
