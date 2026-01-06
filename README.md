@@ -36,37 +36,112 @@ A web-based GUI tool for managing OpenCode sessions and projects. Browse, search
 
 ---
 
+## Quick Start
+
+The fastest way to run the application:
+
+```bash
+uvx --from git+https://github.com/Wil363666/OpenCode-Session-Manager opencode-session-manager
+```
+
+This single command downloads, installs, and runs the application instantly!
+
+---
+
 ## Requirements
 
 - Python 3.8 or higher
-- Internet connection (first run only, to install dependencies)
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
 
-Dependencies (auto-installed):
+Dependencies:
 - FastAPI
 - Uvicorn
+
+### Why Use uv?
+
+`uv` is a blazingly fast Python package installer and resolver written in Rust. Benefits include:
+
+- **10-100x faster** than pip for dependency resolution and installation
+- **Isolated environments** - each tool gets its own virtual environment
+- **Zero configuration** - works out of the box
+- **Run without installing** - use `uvx` to run tools instantly
+- **Better dependency resolution** - consistent, reproducible environments
+
+Install uv:
+
+```bash
+# macOS and Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Or with pip
+pip install uv
+```
 
 ---
 
 ## Installation
 
+### Method 1: Using uvx (Recommended - No Clone Required)
+
+Run directly without installation using `uvx`:
+
+```bash
+uvx --from git+https://github.com/Wil363666/OpenCode-Session-Manager opencode-session-manager
+```
+
+This will:
+- Fetch the latest version from GitHub
+- Install dependencies in an isolated environment
+- Run the application immediately
+
+### Method 2: Using uv tool install (Install as a CLI tool)
+
+Install globally as a command-line tool:
+
+```bash
+uv tool install git+https://github.com/Wil363666/OpenCode-Session-Manager
+```
+
+Then run anytime with:
+
+```bash
+opencode-session-manager
+```
+
+To update to the latest version:
+
+```bash
+uv tool upgrade opencode-session-manager
+```
+
+To uninstall:
+
+```bash
+uv tool uninstall opencode-session-manager
+```
+
+### Method 3: Clone and Run with uv
+
 Clone the repository:
 
-```
-git clone https://github.com/yourusername/opencode-session-manager.git
+```bash
+git clone https://github.com/Wil363666/OpenCode-Session-Manager.git
 cd opencode-session-manager
 ```
 
-Run the application:
+Run with uv:
 
-```
-python opencode_session_manager.py
+```bash
+uv run opencode-session-manager
 ```
 
 On first run, the application will:
-1. Create a virtual environment
-2. Install required dependencies
-3. Auto-detect your OpenCode storage path
-4. Open your browser to the UI at http://localhost:8765
+1. Install required dependencies (handled by uv)
+2. Auto-detect your OpenCode storage path
+3. Open your browser to the UI at http://localhost:8765
 
 ---
 
@@ -110,6 +185,41 @@ Settings are stored in `static/config.txt`:
 
 ---
 
+## Development
+
+### Setting Up Development Environment
+
+Clone the repository:
+
+```bash
+git clone https://github.com/Wil363666/OpenCode-Session-Manager.git
+cd opencode-session-manager
+```
+
+### Running in Development Mode
+
+```bash
+# Using uv run (automatically manages dependencies)
+uv run opencode-session-manager
+```
+
+uv will automatically:
+- Create an isolated virtual environment
+- Install all dependencies from pyproject.toml
+- Run the application
+
+### Building and Publishing
+
+Build the package:
+
+```bash
+uv build
+```
+
+This creates distribution files in the `dist/` directory.
+
+---
+
 ## License
 
 MIT License
@@ -119,3 +229,13 @@ MIT License
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues and pull requests.
+
+### Development Workflow
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Make your changes
+4. Test locally: `uv run opencode-session-manager`
+5. Commit your changes: `git commit -am 'Add feature'`
+6. Push to your fork: `git push origin feature-name`
+7. Open a Pull Request
