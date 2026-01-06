@@ -421,6 +421,18 @@ async function loadStats(sessionId) {
     const container = document.getElementById('statsContent');
     try {
         const data = await api('/sessions/' + sessionId + '/stats');
+        
+        let continueButton = '';
+        if (data.directory) {
+            continueButton = `
+                <div class="stat-item" style="grid-column: 1 / -1; margin-top: 8px;">
+                    <button class="btn btn-create" onclick="copyContinueCommand('${escapeHtml(data.session_id)}', '${escapeHtml(data.directory)}')" 
+                            style="width: 100%; padding: 10px; font-size: 0.9rem;">
+                        Copy Continue Command
+                    </button>
+                </div>`;
+        }
+        
         container.innerHTML = `
             <div class="stat-item"><div class="label">Session ID</div><div class="value" style="font-size:0.8rem;word-break:break-all;">${escapeHtml(data.session_id)}</div></div>
             <div class="stat-item"><div class="label">Messages</div><div class="value">${data.message_count}</div></div>
@@ -428,7 +440,8 @@ async function loadStats(sessionId) {
             <div class="stat-item"><div class="label">Created</div><div class="value">${formatDate(data.created)}</div></div>
             <div class="stat-item"><div class="label">Last Modified</div><div class="value">${formatDate(data.updated)}</div></div>
             <div class="stat-item"><div class="label">Has Diffs</div><div class="value">${data.has_diffs ? 'Yes' : 'No'}</div></div>
-            <div class="stat-item"><div class="label">Has Todos</div><div class="value">${data.has_todos ? 'Yes' : 'No'}</div></div>`;
+            <div class="stat-item"><div class="label">Has Todos</div><div class="value">${data.has_todos ? 'Yes' : 'No'}</div></div>
+            ${continueButton}`;
     } catch (e) {
         container.innerHTML = '<div class="empty-state"><p>Error: ' + escapeHtml(e.message) + '</p></div>';
     }
@@ -849,6 +862,34 @@ function formatSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function copyContinueCommand(sessionId, directory) {
+    const isWindows = navigator.platform.toLowerCase().includes('win');
+    
+    let command;
+    if (isWindows) {
+        const cdCommand = `cd /d "${directory}"`;
+        const opencodeCommand = `opencode --session ${sessionId}`;
+        command = `${cdCommand} && ${opencodeCommand}`;
+    } else {
+        const cdCommand = `cd "${directory}"`;
+        const opencodeCommand = `opencode --session ${sessionId}`;
+        command = `${cdCommand} && ${opencodeCommand}`;
+    }
+    
+    navigator.clipboard.writeText(command).then(() => {
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.style.backgroundColor = 'var(--success)';
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.backgroundColor = '';
+        }, 2000);
+    }).catch(err => {
+        alert('Failed to copy command: ' + err.message);
+    });
 }
 
 function showAddProjectModal() {

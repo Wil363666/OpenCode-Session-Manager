@@ -1437,9 +1437,11 @@ async def get_session_stats(session_id: str):
         "updated": None,
         "has_diffs": False,
         "has_todos": False,
+        "directory": None,
+        "project_id": None,
     }
 
-    session_file, _ = _find_session_file(session_id)
+    session_file, project_id = _find_session_file(session_id)
 
     if session_file:
         try:
@@ -1447,6 +1449,8 @@ async def get_session_stats(session_id: str):
                 data = json.load(f)
             stats["created"] = data.get("time", {}).get("created")
             stats["updated"] = data.get("time", {}).get("updated")
+            stats["directory"] = data.get("directory")
+            stats["project_id"] = data.get("projectID", project_id)
             stats["total_size"] += session_file.stat().st_size
         except (json.JSONDecodeError, IOError):
             pass
