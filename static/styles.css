@@ -162,6 +162,27 @@ body {
     background: var(--color-badge-project); color: #fff; font-size: 0.7rem;
     margin-left: 8px; margin-top: 0; padding: 2px 6px;
 }
+.list-item .badge.child-count {
+    background: var(--accent-secondary); color: #fff; font-size: 0.7rem;
+    margin-left: 4px; margin-top: 0; padding: 2px 6px; cursor: help;
+}
+.list-item .subagent-indicator {
+    color: var(--accent-secondary); font-weight: bold;
+    margin-right: 4px; opacity: 0.7;
+}
+.list-item .expand-icon {
+    display: inline-block;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    cursor: pointer;
+    margin-right: 6px;
+    user-select: none;
+    width: 12px;
+    text-align: center;
+}
+.list-item .expand-icon:hover {
+    color: var(--accent-primary);
+}
 
 /* Session Items (Draggable) */
 .session-item { cursor: grab; }

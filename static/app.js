@@ -11,6 +11,7 @@ let isGlobalSearch = false;
 let previewMessages = [];
 let previewMatchIndex = -1;
 let previewMatchCount = 0;
+let expandedSessions = new Set();
 
 // Git config state for pending operations
 let pendingGitConfigOperation = null;
@@ -204,6 +205,66 @@ async function loadSessions(projectId, search = '') {
     } catch (e) { console.error(e); }
 }
 
+function buildSessionTree(sessions) {
+    const sessionMap = new Map();
+    const rootSessions = [];
+    
+    sessions.forEach(s => {
+        sessionMap.set(s.id, { ...s, children: [] });
+    });
+    
+    sessions.forEach(s => {
+        const session = sessionMap.get(s.id);
+        if (s.parent_id && sessionMap.has(s.parent_id)) {
+            sessionMap.get(s.parent_id).children.push(session);
+        } else {
+            rootSessions.push(session);
+        }
+    });
+    
+    return rootSessions;
+}
+
+function toggleSessionExpand(sessionId, event) {
+    event.stopPropagation();
+    if (expandedSessions.has(sessionId)) {
+        expandedSessions.delete(sessionId);
+    } else {
+        expandedSessions.add(sessionId);
+    }
+    renderSessions();
+}
+
+function renderSessionItem(session, projectId, depth = 0) {
+    const selected = session.id === selectedSessionId ? 'selected' : '';
+    const multi = multiSelectedSessions.has(session.id) ? 'multi-selected' : '';
+    const indent = depth > 0 ? `margin-left: ${depth * 20}px;` : '';
+    const projectBadge = isGlobalSearch && session.project_name 
+        ? `<span class="badge project-badge">${escapeHtml(session.project_name)}</span>` 
+        : '';
+    const subagentIndicator = session.parent_id ? '<span class="subagent-indicator" title="Subagent session">↳</span> ' : '';
+    
+    const hasChildren = session.children && session.children.length > 0;
+    const isExpanded = expandedSessions.has(session.id);
+    const expandIcon = hasChildren 
+        ? `<span class="expand-icon ${isExpanded ? 'expanded' : ''}" onclick="toggleSessionExpand('${session.id}', event)">${isExpanded ? '▼' : '▶'}</span> `
+        : '';
+    const childCount = hasChildren 
+        ? ` <span class="badge child-count" title="${session.children.length} subagent session(s)">${session.children.length}</span>` 
+        : '';
+    
+    let html = `<div class="list-item session-item ${selected} ${multi}" data-id="${session.id}" data-project-id="${projectId}" draggable="true" onclick="selectSession('${session.id}', event, '${projectId}')" style="${indent}">
+        <div class="title">${expandIcon}${subagentIndicator}${escapeHtml(session.title || session.id)}${projectBadge}${childCount}</div>
+        <div class="subtitle">${formatDate(session.updated || session.created)}</div></div>`;
+    
+    if (hasChildren && isExpanded) {
+        session.children.sort((a, b) => (a.created || 0) - (b.created || 0));
+        html += session.children.map(child => renderSessionItem(child, projectId, depth + 1)).join('');
+    }
+    
+    return html;
+}
+
 function renderSessions() {
     const container = document.getElementById('sessionList');
     const searchTerm = document.getElementById('sessionSearch').value.trim();
@@ -216,17 +277,11 @@ function renderSessions() {
         container.innerHTML = '<div class="empty-state"><p>No sessions found</p></div>';
         return;
     }
-    container.innerHTML = sessions.map(s => {
-        const selected = s.id === selectedSessionId ? 'selected' : '';
-        const multi = multiSelectedSessions.has(s.id) ? 'multi-selected' : '';
-        const projectId = s.project_id || selectedProjectId;
-        const projectBadge = isGlobalSearch && s.project_name 
-            ? `<span class="badge project-badge">${escapeHtml(s.project_name)}</span>` 
-            : '';
-        return `<div class="list-item session-item ${selected} ${multi}" data-id="${s.id}" data-project-id="${projectId}" draggable="true" onclick="selectSession('${s.id}', event, '${projectId}')">
-            <div class="title">${escapeHtml(s.title || s.id)}${projectBadge}</div>
-            <div class="subtitle">${formatDate(s.updated || s.created)}</div></div>`;
-    }).join('');
+    
+    const tree = buildSessionTree(sessions);
+    const projectId = selectedProjectId;
+    
+    container.innerHTML = tree.map(session => renderSessionItem(session, session.project_id || projectId)).join('');
     initSortable();
 }
 

@@ -964,6 +964,7 @@ async def get_sessions(project_id: str, search: str = ""):
                     "created": data.get("time", {}).get("created"),
                     "updated": data.get("time", {}).get("updated"),
                     "size": file_size,
+                    "parent_id": data.get("parentID"),
                 }
             )
         except (json.JSONDecodeError, IOError):
@@ -1047,6 +1048,7 @@ async def search_all_sessions(search: str = ""):
                         "size": file_size,
                         "project_id": project_id,
                         "project_name": project_info["name"],
+                        "parent_id": data.get("parentID"),
                     }
                 )
             except (json.JSONDecodeError, IOError):
