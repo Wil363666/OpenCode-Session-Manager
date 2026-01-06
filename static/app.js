@@ -763,11 +763,27 @@ async function confirmEdit() {
     try {
         if (input.dataset.type === 'project') {
             const worktree = document.getElementById('editWorktree').value.trim();
-            await api('/projects/' + input.dataset.id + '/update', { 
+            const result = await api('/projects/' + input.dataset.id + '/update', { 
                 method: 'PUT', 
                 body: JSON.stringify({ new_name: newName, worktree: worktree }) 
             });
+            
+            // Handle migration to new project ID
+            if (result.migrated && result.new_project_id) {
+                selectedProjectId = result.new_project_id;
+                if (result.merged) {
+                    alert(`Project merged into existing project "${result.target_project_name}".\n${result.sessions_moved} session(s) moved.`);
+                } else {
+                    alert(`Project migrated to new git repository.\n${result.sessions_moved} session(s) moved.`);
+                }
+            }
+            
             await loadProjects();
+            
+            // Reload sessions for the (possibly new) project
+            if (selectedProjectId) {
+                await loadSessions(selectedProjectId);
+            }
         } else {
             await api('/sessions/' + input.dataset.id + '/rename', { method: 'PUT', body: JSON.stringify({ new_name: newName }) });
             await loadSessions(selectedProjectId);

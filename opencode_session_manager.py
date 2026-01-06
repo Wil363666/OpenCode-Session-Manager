@@ -441,6 +441,227 @@ def _delete_session_data(session_id: str):
         todo_file.unlink()
 
 
+def _cleanup_desktop_cache_sessions(session_ids: list[str]):
+    """Remove session entries from OpenCode Desktop cache."""
+    if not DESKTOP_CACHE_PATH or not DESKTOP_CACHE_PATH.exists():
+        return
+    
+    try:
+        with open(DESKTOP_CACHE_PATH, 'r', encoding='utf-8') as f:
+            cache_data = json.load(f)
+        
+        modified = False
+        session_id_set = set(session_ids)
+        
+        # Remove keys that reference deleted sessions
+        keys_to_remove = []
+        for key in list(cache_data.keys()):
+            if ".v1" in key or ".v2" in key:
+                for session_id in session_id_set:
+                    if session_id in key:
+                        keys_to_remove.append(key)
+                        break
+        
+        for key in keys_to_remove:
+            del cache_data[key]
+            modified = True
+        
+        # Clean notification list
+        if "notification.v1" in cache_data:
+            try:
+                notif_data = json.loads(cache_data["notification.v1"])
+                original_count = len(notif_data.get("list", []))
+                notif_data["list"] = [
+                    n for n in notif_data.get("list", [])
+                    if n.get("session", "") not in session_id_set
+                ]
+                new_count = len(notif_data.get("list", []))
+                if new_count < original_count:
+                    cache_data["notification.v1"] = json.dumps(notif_data)
+                    modified = True
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        if modified:
+            with open(DESKTOP_CACHE_PATH, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f)
+    except (json.JSONDecodeError, IOError):
+        pass
+
+
+def _cleanup_desktop_cache_by_worktree(worktree: str):
+    """Remove all Desktop cache entries for a worktree path (project)."""
+    if not DESKTOP_CACHE_PATH or not DESKTOP_CACHE_PATH.exists() or not worktree:
+        return
+    
+    import base64
+    
+    try:
+        with open(DESKTOP_CACHE_PATH, 'r', encoding='utf-8') as f:
+            cache_data = json.load(f)
+        
+        # Encode the worktree path to base64 (OpenCode Desktop uses this as key prefix)
+        worktree_b64 = base64.b64encode(worktree.encode('utf-8')).decode('utf-8').rstrip('=')
+        
+        modified = False
+        keys_to_remove = []
+        
+        # Find all keys that start with this worktree's base64 encoding
+        for key in list(cache_data.keys()):
+            if key.startswith(worktree_b64):
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            del cache_data[key]
+            modified = True
+        
+        # Also clean notification list for this directory
+        if "notification.v1" in cache_data:
+            try:
+                notif_data = json.loads(cache_data["notification.v1"])
+                original_count = len(notif_data.get("list", []))
+                notif_data["list"] = [
+                    n for n in notif_data.get("list", [])
+                    if n.get("directory", "") != worktree
+                ]
+                new_count = len(notif_data.get("list", []))
+                if new_count < original_count:
+                    cache_data["notification.v1"] = json.dumps(notif_data)
+                    modified = True
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        # Clean layout sessionTabs (check multiple versions)
+        for layout_key in ["layout.v4", "layout.v6"]:
+            if layout_key in cache_data:
+                try:
+                    layout_data = json.loads(cache_data[layout_key])
+                    if "sessionTabs" in layout_data:
+                        original_tabs = layout_data["sessionTabs"]
+                        layout_data["sessionTabs"] = {
+                            k: v for k, v in original_tabs.items()
+                            if not k.startswith(worktree_b64)
+                        }
+                        if len(layout_data["sessionTabs"]) < len(original_tabs):
+                            cache_data[layout_key] = json.dumps(layout_data)
+                            modified = True
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        
+        # Remove project from server.v3 projects list
+        if "server.v3" in cache_data:
+            try:
+                server_data = json.loads(cache_data["server.v3"])
+                if "projects" in server_data and "local" in server_data["projects"]:
+                    original_projects = server_data["projects"]["local"]
+                    # Filter out the project with matching worktree
+                    server_data["projects"]["local"] = [
+                        p for p in original_projects
+                        if p.get("worktree", "") != worktree
+                    ]
+                    if len(server_data["projects"]["local"]) < len(original_projects):
+                        cache_data["server.v3"] = json.dumps(server_data)
+                        modified = True
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        if modified:
+            with open(DESKTOP_CACHE_PATH, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f)
+    except (json.JSONDecodeError, IOError):
+        pass
+
+
+def _migrate_desktop_cache_worktree(old_worktree: str, new_worktree: str):
+    """Migrate Desktop cache entries from old worktree path to new worktree path."""
+    if not DESKTOP_CACHE_PATH or not DESKTOP_CACHE_PATH.exists():
+        return
+    if not old_worktree or not new_worktree or old_worktree == new_worktree:
+        return
+    
+    import base64
+    
+    try:
+        with open(DESKTOP_CACHE_PATH, 'r', encoding='utf-8') as f:
+            cache_data = json.load(f)
+        
+        # Encode paths to base64
+        old_b64 = base64.b64encode(old_worktree.encode('utf-8')).decode('utf-8').rstrip('=')
+        new_b64 = base64.b64encode(new_worktree.encode('utf-8')).decode('utf-8').rstrip('=')
+        
+        modified = False
+        keys_to_rename = {}
+        
+        # Find all keys that start with old worktree's base64 and rename them
+        for key in list(cache_data.keys()):
+            if key.startswith(old_b64):
+                new_key = new_b64 + key[len(old_b64):]
+                keys_to_rename[key] = new_key
+        
+        for old_key, new_key in keys_to_rename.items():
+            cache_data[new_key] = cache_data.pop(old_key)
+            modified = True
+        
+        # Update notification list directories
+        if "notification.v1" in cache_data:
+            try:
+                notif_data = json.loads(cache_data["notification.v1"])
+                notif_modified = False
+                for notif in notif_data.get("list", []):
+                    if notif.get("directory") == old_worktree:
+                        notif["directory"] = new_worktree
+                        notif_modified = True
+                if notif_modified:
+                    cache_data["notification.v1"] = json.dumps(notif_data)
+                    modified = True
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        # Update layout sessionTabs (check multiple versions)
+        for layout_key in ["layout.v4", "layout.v6"]:
+            if layout_key in cache_data:
+                try:
+                    layout_data = json.loads(cache_data[layout_key])
+                    if "sessionTabs" in layout_data:
+                        new_tabs = {}
+                        tabs_modified = False
+                        for key, value in layout_data["sessionTabs"].items():
+                            if key.startswith(old_b64):
+                                new_key = new_b64 + key[len(old_b64):]
+                                new_tabs[new_key] = value
+                                tabs_modified = True
+                            else:
+                                new_tabs[key] = value
+                        if tabs_modified:
+                            layout_data["sessionTabs"] = new_tabs
+                            cache_data[layout_key] = json.dumps(layout_data)
+                            modified = True
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        
+        # Update server.v3 projects list worktree path
+        if "server.v3" in cache_data:
+            try:
+                server_data = json.loads(cache_data["server.v3"])
+                if "projects" in server_data and "local" in server_data["projects"]:
+                    projects_modified = False
+                    for project in server_data["projects"]["local"]:
+                        if project.get("worktree") == old_worktree:
+                            project["worktree"] = new_worktree
+                            projects_modified = True
+                    if projects_modified:
+                        cache_data["server.v3"] = json.dumps(server_data)
+                        modified = True
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        if modified:
+            with open(DESKTOP_CACHE_PATH, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f)
+    except (json.JSONDecodeError, IOError):
+        pass
+
+
 # =============================================================================
 # FastAPI Application
 # =============================================================================
@@ -1069,6 +1290,64 @@ async def check_repair_project(project_id: str):
             except (json.JSONDecodeError, IOError):
                 continue  # Skip files we can't read
     
+    # Step 4: Ensure project is registered in Desktop cache (server.v3.projects.local)
+    if worktree and DESKTOP_CACHE_PATH and DESKTOP_CACHE_PATH.exists():
+        try:
+            with open(DESKTOP_CACHE_PATH, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
+            cache_modified = False
+            
+            # Check server.v3 projects list
+            if "server.v3" in cache_data:
+                try:
+                    server_data = json.loads(cache_data["server.v3"])
+                    if "projects" not in server_data:
+                        server_data["projects"] = {"local": []}
+                    if "local" not in server_data["projects"]:
+                        server_data["projects"]["local"] = []
+                    
+                    # Check if worktree is in the projects list
+                    worktree_exists = any(
+                        p.get("worktree") == worktree 
+                        for p in server_data["projects"]["local"]
+                    )
+                    
+                    if not worktree_exists:
+                        report["issues_found"].append(
+                            f"Project not found in Desktop cache server.v3.projects.local"
+                        )
+                        # Add the project to the list
+                        server_data["projects"]["local"].append({
+                            "worktree": worktree,
+                            "expanded": True
+                        })
+                        cache_data["server.v3"] = json.dumps(server_data)
+                        cache_modified = True
+                        report["fixes_applied"].append(
+                            f"Added project to Desktop cache server.v3.projects.local"
+                        )
+                except (json.JSONDecodeError, TypeError) as e:
+                    report["errors"].append(f"Failed to parse server.v3 cache: {e}")
+            else:
+                # server.v3 doesn't exist, create it
+                report["issues_found"].append("Desktop cache server.v3 key not found")
+                server_data = {
+                    "list": [],
+                    "projects": {
+                        "local": [{"worktree": worktree, "expanded": True}]
+                    }
+                }
+                cache_data["server.v3"] = json.dumps(server_data)
+                cache_modified = True
+                report["fixes_applied"].append("Created server.v3 in Desktop cache with project")
+            
+            if cache_modified:
+                with open(DESKTOP_CACHE_PATH, 'w', encoding='utf-8') as f:
+                    json.dump(cache_data, f)
+        except (json.JSONDecodeError, IOError) as e:
+            report["errors"].append(f"Failed to update Desktop cache: {e}")
+    
     return report
 
 
@@ -1425,6 +1704,9 @@ async def update_project(project_id: str, request: Request):
     
     # Track what changed
     changes = []
+    new_project_id = None
+    new_worktree = old_worktree
+    migrated = False
     
     # Ensure all required OpenCode fields exist
     if _ensure_project_fields(project_data):
@@ -1435,31 +1717,169 @@ async def update_project(project_id: str, request: Request):
         project_data["name"] = data["new_name"]
         changes.append(f"name: '{old_name}' -> '{data['new_name']}'")
     
-    # Update worktree
+    # Update worktree - may require migration if git root commit differs
     if "worktree" in data and data["worktree"] != old_worktree:
-        project_data["worktree"] = data["worktree"]
-        # Update vcs field based on new worktree
-        if data["worktree"] and Path(data["worktree"]).exists() and (Path(data["worktree"]) / ".git").exists():
-            project_data["vcs"] = "git"
+        new_worktree = data["worktree"]
+        
+        if new_worktree and Path(new_worktree).exists():
+            # Check if git already exists before we potentially create it
+            git_already_exists = (Path(new_worktree) / ".git").exists()
+            
+            success, git_project_id, error = _ensure_git_repo(new_worktree)
+            if success:
+                project_data["vcs"] = "git"
+                
+                # Check if this requires migration (different git root = different project ID)
+                if git_project_id and git_project_id != project_id:
+                    # Need to migrate to new project ID
+                    new_project_id = git_project_id
+                    migrated = True
+                    
+                    if git_already_exists:
+                        changes.append(f"migrated to new git repo")
+                    else:
+                        changes.append(f"migrated to new git repo (git initialized)")
+                else:
+                    if git_already_exists:
+                        changes.append("worktree changed")
+                    else:
+                        changes.append("worktree changed (git initialized)")
+            else:
+                project_data["vcs"] = ""
+                changes.append(f"worktree changed (git init failed: {error})")
         else:
             project_data["vcs"] = ""
-        changes.append("worktree changed")
+            changes.append("worktree changed")
+        
+        project_data["worktree"] = new_worktree
     
     if changes:
         project_data["time"]["updated"] = _now_ms()
         
-        with open(project_file, "w", encoding="utf-8") as f:
-            json.dump(project_data, f, indent=2)
-        
-        # Add to undo history
-        _add_to_undo_history({
-            "type": "update_project",
-            "description": f"Edit project '{old_name}': {', '.join(changes)}",
-            "project_id": project_id,
-            "old_name": old_name,
-            "old_worktree": old_worktree,
-            "file_path": str(project_file)
-        })
+        if migrated and new_project_id:
+            # Migration: move everything to new project ID
+            new_project_file = STORAGE_PATH / "project" / f"{new_project_id}.json"
+            old_session_dir = STORAGE_PATH / "session" / project_id
+            new_session_dir = STORAGE_PATH / "session" / new_project_id
+            
+            # Update project data with new ID
+            project_data["id"] = new_project_id
+            
+            # Check if target project already exists (merge scenario)
+            merged_into_existing = False
+            target_project_name = ""
+            if new_project_file.exists():
+                # Merge into existing project - keep the existing project file
+                # but we may want to update name if user provided one
+                merged_into_existing = True
+                try:
+                    with open(new_project_file, "r", encoding="utf-8") as f:
+                        existing_project_data = json.load(f)
+                    target_project_name = existing_project_data.get("name", new_project_id)
+                    
+                    # If user is renaming, update the target project's name
+                    if "new_name" in data and data["new_name"] != old_name:
+                        existing_project_data["name"] = data["new_name"]
+                        existing_project_data["time"]["updated"] = _now_ms()
+                        with open(new_project_file, "w", encoding="utf-8") as f:
+                            json.dump(existing_project_data, f, indent=2)
+                except (json.JSONDecodeError, IOError):
+                    pass
+            else:
+                # Create new project file
+                with open(new_project_file, "w", encoding="utf-8") as f:
+                    json.dump(project_data, f, indent=2)
+            
+            # Move sessions to new project folder
+            sessions_moved = 0
+            if old_session_dir.exists():
+                new_session_dir.mkdir(parents=True, exist_ok=True)
+                for session_file in old_session_dir.glob("*.json"):
+                    try:
+                        # Update session's projectID and directory
+                        with open(session_file, "r", encoding="utf-8") as f:
+                            session_data = json.load(f)
+                        session_data["projectID"] = new_project_id
+                        session_data["directory"] = new_worktree
+                        
+                        # Move to new location
+                        new_session_file = new_session_dir / session_file.name
+                        with open(new_session_file, "w", encoding="utf-8") as f:
+                            json.dump(session_data, f, indent=2)
+                        
+                        # Delete old file
+                        session_file.unlink()
+                        sessions_moved += 1
+                    except (json.JSONDecodeError, IOError) as e:
+                        pass  # Skip problematic files
+                
+                # Remove old session directory if empty
+                try:
+                    if old_session_dir.exists() and not any(old_session_dir.iterdir()):
+                        old_session_dir.rmdir()
+                except OSError:
+                    pass
+            
+            # Delete old project file
+            try:
+                project_file.unlink()
+            except OSError:
+                pass
+            
+            # Migrate Desktop cache entries from old worktree to new worktree
+            if old_worktree and new_worktree and old_worktree != new_worktree:
+                try:
+                    _migrate_desktop_cache_worktree(old_worktree, new_worktree)
+                except Exception:
+                    pass  # Don't fail migration if cache update fails
+            
+            changes.append(f"{sessions_moved} sessions moved")
+            
+            # Add to undo history (migration is complex, store info for reference)
+            if merged_into_existing:
+                changes.append(f"merged into existing project '{target_project_name}'")
+            
+            _add_to_undo_history({
+                "type": "migrate_project",
+                "description": f"Migrate project '{project_data.get('name', '')}': {', '.join(changes)}",
+                "old_project_id": project_id,
+                "new_project_id": new_project_id,
+                "old_name": old_name,
+                "old_worktree": old_worktree,
+                "sessions_moved": sessions_moved,
+                "merged": merged_into_existing
+            })
+            
+            return {
+                "success": True, 
+                "name": project_data.get("name", ""), 
+                "worktree": project_data.get("worktree", ""),
+                "migrated": True,
+                "merged": merged_into_existing,
+                "target_project_name": target_project_name if merged_into_existing else "",
+                "new_project_id": new_project_id,
+                "sessions_moved": sessions_moved
+            }
+        else:
+            # Simple update, no migration
+            with open(project_file, "w", encoding="utf-8") as f:
+                json.dump(project_data, f, indent=2)
+            
+            # If worktree changed (but same project ID), migrate Desktop cache entries
+            if old_worktree and new_worktree and old_worktree != new_worktree:
+                try:
+                    _migrate_desktop_cache_worktree(old_worktree, new_worktree)
+                except Exception:
+                    pass  # Don't fail update if cache migration fails
+            
+            _add_to_undo_history({
+                "type": "update_project",
+                "description": f"Edit project '{old_name}': {', '.join(changes)}",
+                "project_id": project_id,
+                "old_name": old_name,
+                "old_worktree": old_worktree,
+                "file_path": str(project_file)
+            })
     
     return {"success": True, "name": project_data.get("name", ""), "worktree": project_data.get("worktree", "")}
 
@@ -1579,10 +1999,14 @@ async def delete_projects(request: Request):
     errors = []
     project_backups = []
     project_names = []
+    deleted_session_ids = []
+    
+    deleted_worktrees = []
     
     for project_id in data.get("ids", []):
         try:
             project_backup = {"project_id": project_id, "project_file": None, "sessions": []}
+            project_worktree = ""
             
             project_file = STORAGE_PATH / "project" / f"{project_id}.json"
             if project_file.exists():
@@ -1591,6 +2015,7 @@ async def delete_projects(request: Request):
                     with open(project_file, "r", encoding="utf-8") as f:
                         project_data = json.load(f)
                     project_names.append(project_data.get("name", project_id))
+                    project_worktree = project_data.get("worktree", "")
                 except (json.JSONDecodeError, KeyError, IOError):
                     project_names.append(project_id)
             
@@ -1600,6 +2025,7 @@ async def delete_projects(request: Request):
                     session_id = session_file.stem
                     session_backup = _backup_session_data(session_id, project_id)
                     project_backup["sessions"].append(session_backup)
+                    deleted_session_ids.append(session_id)
             
             project_backups.append(project_backup)
             
@@ -1612,9 +2038,22 @@ async def delete_projects(request: Request):
                     _delete_session_data(session_id)
                 shutil.rmtree(str(session_dir))
             
+            if project_worktree:
+                deleted_worktrees.append(project_worktree)
+            
             deleted.append(project_id)
         except Exception as e:
             errors.append({"id": project_id, "error": str(e)})
+    
+    # Clean up OpenCode Desktop cache entries for deleted sessions and worktrees
+    if DESKTOP_CACHE_PATH and DESKTOP_CACHE_PATH.exists():
+        try:
+            if deleted_session_ids:
+                _cleanup_desktop_cache_sessions(deleted_session_ids)
+            for worktree in deleted_worktrees:
+                _cleanup_desktop_cache_by_worktree(worktree)
+        except Exception as e:
+            errors.append({"id": "desktop_cache", "error": str(e)})
     
     if deleted:
         description = f"Delete {len(deleted)} project(s): {', '.join(project_names[:3])}"
@@ -1658,6 +2097,13 @@ async def delete_sessions(request: Request):
             deleted.append(session_id)
         except Exception as e:
             errors.append({"id": session_id, "error": str(e)})
+    
+    # Clean up OpenCode Desktop cache entries for deleted sessions
+    if deleted and DESKTOP_CACHE_PATH and DESKTOP_CACHE_PATH.exists():
+        try:
+            _cleanup_desktop_cache_sessions(deleted)
+        except Exception as e:
+            errors.append({"id": "desktop_cache", "error": str(e)})
     
     if deleted:
         description = f"Delete {len(deleted)} session(s): {', '.join(session_names[:3])}"
