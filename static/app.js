@@ -426,7 +426,7 @@ async function loadStats(sessionId) {
         if (data.directory) {
             continueButton = `
                 <div class="stat-item" style="grid-column: 1 / -1; margin-top: 8px;">
-                    <button class="btn btn-create" onclick="copyContinueCommand('${escapeHtml(data.session_id)}', '${escapeHtml(data.directory)}')" 
+                    <button class="btn btn-create" onclick="copyContinueCommand(event, '${escapeHtml(data.session_id)}', '${escapeHtml(data.directory)}')" 
                             style="width: 100%; padding: 10px; font-size: 0.9rem;">
                         Copy Continue Command
                     </button>
@@ -864,7 +864,7 @@ function formatSize(bytes) {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-function copyContinueCommand(sessionId, directory) {
+function copyContinueCommand(evt, sessionId, directory) {
     const isWindows = navigator.platform.toLowerCase().includes('win');
     
     let command;
@@ -879,7 +879,7 @@ function copyContinueCommand(sessionId, directory) {
     }
     
     navigator.clipboard.writeText(command).then(() => {
-        const btn = event.target;
+        const btn = evt.target;
         const originalText = btn.textContent;
         btn.textContent = 'Copied!';
         btn.style.backgroundColor = 'var(--success)';
